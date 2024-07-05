@@ -114,27 +114,27 @@ void Admittance::compute_admittance() {
   Vector6d coupling_wrench_car;
 
   coupling_wrench_arm =  D_ * (arm_desired_twist_adm_)  + K_*error;
-  arm_desired_accelaration = M_.inverse() * ( - coupling_wrench_arm + wrench_external_);
+    arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
 
   coupling_wrench_car = Dcar_ * (car_desired_twist_adm_);
   car_desired_accelaration = M_.inverse() * ( - coupling_wrench_car + wrench_external_);
 
-  double a_acc_norm = (arm_desired_accelaration.segment(0, 3)).norm();
+  double a_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
 
   if (a_acc_norm > arm_max_acc_) {
     ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm accelaration!"
                              << " norm: " << a_acc_norm);
-    arm_desired_accelaration.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
+      arm_desired_acceleration.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
   }
 
-  double b_acc_norm = (arm_desired_accelaration.segment(0, 3)).norm();
+  double b_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
 
   if (b_acc_norm > 10) {
     car_desired_accelaration.segment(0, 3) *= (1.5 / b_acc_norm);
   }
   // Integrate for velocity based interface
   ros::Duration duration = loop_rate_.expectedCycleTime();
-  arm_desired_twist_adm_ += arm_desired_accelaration *  duration.toSec();
+  arm_desired_twist_adm_ += arm_desired_acceleration * duration.toSec();
   car_desired_twist_adm_ += car_desired_accelaration *  duration.toSec();
 }
 

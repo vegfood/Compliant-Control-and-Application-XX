@@ -51,6 +51,8 @@ Admittance::Admittance(ros::NodeHandle &n,
 
   // Init integrator
   arm_desired_twist_adm_.setZero();
+  arm_desired_twist.setZero();
+  arm_desired_acceleration.setZero();
 
 
   ft_arm_ready_ = false;
@@ -115,19 +117,40 @@ void Admittance::compute_admittance() {
   // Translation error w.r.t. desired equilibrium
   Vector6d coupling_wrench_arm;
 
-  coupling_wrench_arm=  D_ * (arm_desired_twist_adm_) + K_*error;
-  arm_desired_accelaration = M_.inverse() * ( - coupling_wrench_arm  + wrench_external_);
+  coupling_wrench_arm=   9 * D_ * (arm_twist_ - arm_desired_twist) + 10 * K_*error;
+//    arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
+  arm_desired_acceleration_adm_ = M_.inverse() * (- coupling_wrench_arm + wrench_external_) + arm_desired_acceleration;
 
-  double a_acc_norm = (arm_desired_accelaration.segment(0, 3)).norm();
 
+//  double a_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
+
+//  if (a_acc_norm > arm_max_acc_) {
+//    ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm accelaration!"
+//                             << " norm: " << a_acc_norm);
+//    arm_desired_acceleration.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
+//  }
+//  else {
+//      ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm accelaration!"
+//              << " norm: " << a_acc_norm);
+//  }
+  double a_acc_norm = (arm_desired_acceleration_adm_.segment(0, 3)).norm();
   if (a_acc_norm > arm_max_acc_) {
     ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm accelaration!"
                              << " norm: " << a_acc_norm);
-    arm_desired_accelaration.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
+    arm_desired_acceleration_adm_.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
   }
+  else {
+      ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm accelaration!"
+              << " norm: " << a_acc_norm);
+  }
+
   // Integrate for velocity based interface
   ros::Duration duration = loop_rate_.expectedCycleTime();
-  arm_desired_twist_adm_ += arm_desired_accelaration * duration.toSec();
+//  arm_desired_twist_adm_ += arm_desired_acceleration * duration.toSec();
+//  arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
+    arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_twist_;
+
+
 }
 
 //!-                     CALLBACKS                       -!//
@@ -200,19 +223,19 @@ void Admittance::send_commands_to_robot() {
 
   // }
   geometry_msgs::Twist arm_twist_cmd;
-  arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0)*0.3;
-  arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1)*0.3;
-  arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2)*0.3;
-  arm_twist_cmd.angular.x = arm_desired_twist_adm_(3)*0.3;
-  arm_twist_cmd.angular.y = arm_desired_twist_adm_(4)*0.3;
-  arm_twist_cmd.angular.z = arm_desired_twist_adm_(5)*0.3;
+//  arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0)*0.3;
+//  arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1)*0.3;
+//  arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2)*0.3;
+//  arm_twist_cmd.angular.x = arm_desired_twist_adm_(3)*0.3;
+//  arm_twist_cmd.angular.y = arm_desired_twist_adm_(4)*0.3;
+//  arm_twist_cmd.angular.z = arm_desired_twist_adm_(5)*0.3;
 
-  // arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0);
-  // arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1);
-  // arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2);
-  // arm_twist_cmd.angular.x = arm_desired_twist_adm_(3);
-  // arm_twist_cmd.angular.y = arm_desired_twist_adm_(4);
-  // arm_twist_cmd.angular.z = arm_desired_twist_adm_(5);
+   arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0);
+   arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1);
+   arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2);
+   arm_twist_cmd.angular.x = arm_desired_twist_adm_(3);
+   arm_twist_cmd.angular.y = arm_desired_twist_adm_(4);
+   arm_twist_cmd.angular.z = arm_desired_twist_adm_(5);
   pub_arm_cmd_.publish(arm_twist_cmd);
 }
 

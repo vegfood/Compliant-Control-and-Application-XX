@@ -29,12 +29,13 @@ int main(int argc, char ** argv)
         // wrench_msg.wrench.force.z = 5*sin(t);
         if(static_cast<int>(t)%10 < 5)
         {
-            wrench_msg.wrench.force.z = 1;
+            wrench_msg.wrench.force.z = 15;
         }
         else
         {
-            wrench_msg.wrench.force.z = -1;
+            wrench_msg.wrench.force.z = -15;
         }
+        wrench_msg.header.stamp = ros::Time::now();
         t += 1/TOPIC_HZ;
         wrench_pub.publish(wrench_msg);
         loop_rate.sleep();

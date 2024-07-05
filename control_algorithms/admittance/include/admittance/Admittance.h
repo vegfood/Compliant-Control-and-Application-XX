@@ -63,7 +63,10 @@ protected:
   Vector6d      arm_twist_;
   Vector6d      wrench_external_;
   Vector6d      arm_desired_twist_adm_;
-  Vector6d      arm_desired_accelaration;
+  Vector6d      arm_desired_acceleration;
+  Vector6d      arm_desired_twist;
+  Vector6d      arm_desired_acceleration_adm_;
+
 
   Vector7d      desired_pose_;
   Vector3d      desired_pose_position_;
