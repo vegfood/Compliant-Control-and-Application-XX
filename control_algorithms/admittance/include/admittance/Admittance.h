@@ -97,6 +97,7 @@ public:
                       std::string topic_arm_state,
                       std::string topic_arm_command,
                       std::string topic_wrench_state,
+                      std::string topic_desired_state,
                       std::vector<double> M,
                       std::vector<double> D,
                       std::vector<double> K,
@@ -114,6 +115,8 @@ private:
   // Callbacks
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
   void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg);
+  void state_desired_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
+
   // 
   void send_commands_to_robot();
 

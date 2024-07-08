@@ -12,6 +12,7 @@ Admittance::Admittance(ros::NodeHandle &n,
     std::string topic_arm_state,
     std::string topic_arm_command,
     std::string topic_wrench_state,
+    std::string topic_desired_state,
     std::vector<double> M,
     std::vector<double> D,
     std::vector<double> K,
@@ -30,7 +31,8 @@ Admittance::Admittance(ros::NodeHandle &n,
       &Admittance::state_arm_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   sub_wrench_state_        = nh_.subscribe(topic_wrench_state, 5,
       &Admittance::state_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
-  
+  sub_arm_state_           = nh_.subscribe(topic_arm_state, 5,
+                                             &Admittance::state_arm_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   //* Publishers
   pub_arm_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
 
@@ -148,7 +150,7 @@ void Admittance::compute_admittance() {
   ros::Duration duration = loop_rate_.expectedCycleTime();
 //  arm_desired_twist_adm_ += arm_desired_acceleration * duration.toSec();
 //  arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
-    arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_twist_;
+  arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_twist_;
 
 
 }
@@ -172,6 +174,25 @@ void Admittance::state_arm_callback(
                 msg->twist.angular.x,
                 msg->twist.angular.y,
                 msg->twist.angular.z;
+}
+
+void Admittance::state_desired_callback(
+        const cartesian_state_msgs::PoseTwistConstPtr msg) {
+    desired_pose_position_ <<  msg->pose.position.x,
+            msg->pose.position.y,
+            msg->pose.position.z;
+
+    desired_pose_orientation_.coeffs() <<  msg->pose.orientation.x,
+            msg->pose.orientation.y,
+            msg->pose.orientation.z,
+            msg->pose.orientation.w;
+
+    arm_desired_twist << msg->twist.linear.x,
+            msg->twist.linear.y,
+            msg->twist.linear.z,
+            msg->twist.angular.x,
+            msg->twist.angular.y,
+            msg->twist.angular.z;
 }
 
 void Admittance::state_wrench_callback(
