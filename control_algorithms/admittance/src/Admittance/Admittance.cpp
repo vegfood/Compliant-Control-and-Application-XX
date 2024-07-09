@@ -31,8 +31,8 @@ Admittance::Admittance(ros::NodeHandle &n,
       &Admittance::state_arm_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   sub_wrench_state_        = nh_.subscribe(topic_wrench_state, 5,
       &Admittance::state_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
-  sub_arm_state_           = nh_.subscribe(topic_arm_state, 5,
-                                             &Admittance::state_arm_callback, this,ros::TransportHints().reliable().tcpNoDelay());
+  sub_desired_state_        = nh_.subscribe(topic_desired_state, 5,
+                                             &Admittance::state_desired_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   //* Publishers
   pub_arm_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
 

@@ -54,6 +54,8 @@ protected:
   // Subscribers:
   ros::Subscriber sub_arm_state_;
   ros::Subscriber sub_wrench_state_;
+  ros::Subscriber sub_desired_state_;
+
   // Publishers:
   ros::Publisher pub_arm_cmd_;
 

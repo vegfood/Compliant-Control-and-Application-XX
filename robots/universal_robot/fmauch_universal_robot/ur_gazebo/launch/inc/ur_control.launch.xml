@@ -46,9 +46,11 @@
       -urdf
       -param $(arg robot_description_param_name)
       -model $(arg gazebo_model_name)
+      -unpause
       -z $(arg spawn_z)
       -J shoulder_lift_joint -1.8
-      -J elbow_joint 1.0"
+      -J elbow_joint 1.0
+"
     output="screen" respawn="false" />
 
   <!-- Load and start the controllers listed in the 'controllers' arg. -->
