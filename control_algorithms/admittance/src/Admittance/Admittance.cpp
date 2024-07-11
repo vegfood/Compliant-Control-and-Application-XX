@@ -119,7 +119,7 @@ void Admittance::compute_admittance() {
   // Translation error w.r.t. desired equilibrium
   Vector6d coupling_wrench_arm;
 
-  coupling_wrench_arm=   9 * D_ * (arm_twist_ - arm_desired_twist) + 10 * K_*error;
+  coupling_wrench_arm=   D_ * (arm_twist_ - arm_desired_twist) + K_*error;
 //    arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
   arm_desired_acceleration_adm_ = M_.inverse() * (- coupling_wrench_arm + wrench_external_) + arm_desired_acceleration;
 
