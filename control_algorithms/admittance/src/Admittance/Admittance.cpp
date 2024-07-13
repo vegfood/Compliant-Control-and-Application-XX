@@ -40,6 +40,7 @@ Admittance::Admittance(ros::NodeHandle &n,
   arm_position_.setZero();
   arm_twist_.setZero();
   wrench_external_.setZero();
+  wrench_desired_.setZero();
   desired_pose_position_ << desired_pose_.topRows(3);
   desired_pose_orientation_.coeffs() << desired_pose_.bottomRows(4)/desired_pose_.bottomRows(4).norm();
 
@@ -90,8 +91,8 @@ void Admittance::run() {
 
   while (nh_.ok()) {
 
-    compute_admittance();
-
+//    compute_admittance();
+    compute_hybrid_control();
     send_commands_to_robot();
 
     ros::spinOnce();
@@ -154,6 +155,59 @@ void Admittance::compute_admittance() {
 
 
 }
+
+//!-                Hybrid Force/Position Control        -!//
+
+void Admittance::compute_hybrid_control() {
+
+    // 定义选择矩阵，1表示力控制，0表示位置控制
+    Eigen::Matrix<double, 6, 6> selectionMatrix;
+    selectionMatrix.setZero();
+    selectionMatrix(2, 2) = 1; // Z轴使用力控制，其他轴使用位置控制
+
+    // 计算位置误差和力误差
+    error.topRows(3) = arm_position_ - desired_pose_position_;
+    if(desired_pose_orientation_.coeffs().dot(arm_orientation_.coeffs()) < 0.0)
+    {
+        arm_orientation_.coeffs() << -arm_orientation_.coeffs();
+    }
+    Eigen::Quaterniond quat_rot_err (arm_orientation_ * desired_pose_orientation_.inverse());
+    if(quat_rot_err.coeffs().norm() > 1e-3)
+    {
+        quat_rot_err.coeffs() << quat_rot_err.coeffs()/quat_rot_err.coeffs().norm();
+    }
+    Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
+    error.bottomRows(3) << err_arm_des_orient.axis() * err_arm_des_orient.angle();
+
+    // 力控制输出
+    Vector6d force_error = wrench_external_ - wrench_desired_;
+    Vector6d force_control_output = - K_ * force_error;
+
+    // 位置控制输出
+    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + wrench_external_;
+
+    // 混合控制输出
+    Vector6d control_output = selectionMatrix * force_control_output + (Matrix6d::Identity() - selectionMatrix) * position_control_output;
+
+    // 计算加速度
+    arm_desired_acceleration = M_.inverse() * control_output;
+
+    double a_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
+    if (a_acc_norm > arm_max_acc_) {
+        ROS_WARN_STREAM_THROTTLE(1, "Hybrid control generates high arm acceleration!"
+                << " norm: " << a_acc_norm);
+        arm_desired_acceleration.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
+    }
+    else {
+        ROS_WARN_STREAM_THROTTLE(1, "Hybrid control generates [normal] arm acceleration!"
+                << " norm: " << a_acc_norm);
+    }
+
+    // Integrate for velocity based interface
+    ros::Duration duration = loop_rate_.expectedCycleTime();
+    arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
+}
+
 
 //!-                     CALLBACKS                       -!//
 

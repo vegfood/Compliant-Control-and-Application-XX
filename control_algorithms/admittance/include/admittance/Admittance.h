@@ -64,6 +64,8 @@ protected:
   Quaterniond   arm_orientation_;
   Vector6d      arm_twist_;
   Vector6d      wrench_external_;
+  Vector6d      wrench_desired_;
+
   Vector6d      arm_desired_twist_adm_;
   Vector6d      arm_desired_acceleration;
   Vector6d      arm_desired_twist;
@@ -114,6 +116,7 @@ public:
 private:
   // Control
   void compute_admittance();
+  void compute_hybrid_control();
   // Callbacks
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
   void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg);
