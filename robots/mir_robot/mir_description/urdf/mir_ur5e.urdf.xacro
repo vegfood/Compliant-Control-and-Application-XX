@@ -16,12 +16,16 @@
   <!-- MIR + UR5E + Robotiq + Kinect V2-->
   <xacro:ur5e_robot prefix="ur5e" />
 
+<!--  <joint name="ur5e_fixed_joint" type="fixed">-->
+<!--    <origin xyz="0 0 0.35" rpy="0 0 0" />-->
+<!--    <parent link="base_link"/>-->
+<!--    <child link="ur5ebase_link"/>-->
+<!--  </joint>-->
   <joint name="ur5e_fixed_joint" type="fixed">
-    <origin xyz="0 0 0.35" rpy="0 0 0" />
-    <parent link="base_link"/>
-    <child link="ur5ebase_link"/>
+    <origin xyz="0 0 0.35" rpy="0 0 ${-pi}" />
+    <parent link="base_footprint"/>
+    <child link="ur5ebase_link_inertia"/>
   </joint>
-
 
   <joint name="ur5e_tool_joint" type="fixed">
     <axis xyz="0 1 0" />
@@ -51,14 +55,14 @@
   </link>
 
 
-  <gazebo reference="$(arg tf_prefix)_ur5ewrist_3_joint">
+  <gazebo reference="$(arg tf_prefix)ur5ewrist_3_joint">
     <provideFeedback>true</provideFeedback>
   </gazebo>
   <gazebo>
     <plugin name="wrench" filename="libgazebo_ros_ft_sensor.so">
       <updateRate>100.0</updateRate>
       <topicName>wrench</topicName>
-      <jointName>$(arg tf_prefix)_ur5ewrist_3_joint</jointName>
+      <jointName>$(arg tf_prefix)ur5ewrist_3_joint</jointName>
     </plugin>
   </gazebo>
 
