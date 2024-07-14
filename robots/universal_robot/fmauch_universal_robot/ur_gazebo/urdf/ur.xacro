@@ -77,4 +77,48 @@
     <child link="base_link_inertia"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
+
+  <gazebo reference="wrist_3_joint">
+    <provideFeedback>true</provideFeedback>
+  </gazebo>
+  <gazebo>
+    <pose>0 0.09 0 0 0 0</pose>
+    <plugin name="wrench" filename="libgazebo_ros_ft_sensor.so">
+      <updateRate>100.0</updateRate>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <jointName>wrist_3_joint</jointName>
+    </plugin>
+  </gazebo>
+
+<!--  <gazebo reference="wrist_3_joint">-->
+<!--    <pose>0 0.09 0 0 0 0</pose>-->
+<!--    <sensor name="wrist_3_joint_force_torque" type="force_torque">-->
+<!--      <always_on>true</always_on>-->
+<!--      <update_rate>100.0</update_rate>-->
+<!--      <visualize>true</visualize>-->
+<!--      <force_torque>-->
+<!--        <frame>sensor</frame>-->
+<!--        <measure_direction>child_to_parent</measure_direction>-->
+<!--      </force_torque>-->
+<!--    </sensor>-->
+<!--  </gazebo>-->
+
+<!--  <gazebo reference="wrist_3_joint">-->
+<!--    <pose>0 0.09 0 0 0 0</pose>-->
+<!--    <sensor name="wrist_3_joint_force_torque" type="force_torque">-->
+<!--      <always_on>true</always_on>-->
+<!--      <update_rate>20.0</update_rate>-->
+<!--      <topicName>wrench</topicName>-->
+<!--      <visualize>true</visualize>-->
+<!--      <force_torque>-->
+<!--        <frame>sensor</frame>-->
+<!--        <measure_direction>child_to_parent</measure_direction>-->
+<!--      </force_torque>-->
+<!--      <plugin name="wrist_3_joint_force_torque_plugin" filename="libgazebo_ros_force_torque_sensor.so">-->
+<!--        <gazebo_reference>wrist_3_joint</gazebo_reference>-->
+<!--      </plugin>-->
+<!--    </sensor>-->
+<!--  </gazebo>-->
+
 </robot>

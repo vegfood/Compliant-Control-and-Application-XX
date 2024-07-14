@@ -159,7 +159,7 @@ void Admittance::compute_admittance() {
 //!-                Hybrid Force/Position Control        -!//
 
 void Admittance::compute_hybrid_control() {
-
+    // TODO:enable to set desired wrench by topic,add real force sensor in ee_link;
     // 定义选择矩阵，1表示力控制，0表示位置控制
     Eigen::Matrix<double, 6, 6> selectionMatrix;
     selectionMatrix.setZero();
