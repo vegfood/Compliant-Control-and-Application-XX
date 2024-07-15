@@ -12,6 +12,7 @@ Admittance::Admittance(ros::NodeHandle &n,
     std::string topic_arm_state,
     std::string topic_arm_command,
     std::string topic_wrench_state,
+    std::string topic_wrench_desired,
     std::string topic_desired_state,
     std::vector<double> M,
     std::vector<double> D,
@@ -31,6 +32,8 @@ Admittance::Admittance(ros::NodeHandle &n,
       &Admittance::state_arm_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   sub_wrench_state_        = nh_.subscribe(topic_wrench_state, 5,
       &Admittance::state_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
+  sub_wrench_desired_        = nh_.subscribe(topic_wrench_desired, 5,
+                                             &Admittance::desired_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
   sub_desired_state_        = nh_.subscribe(topic_desired_state, 5,
                                              &Admittance::state_desired_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   //* Publishers
@@ -41,6 +44,7 @@ Admittance::Admittance(ros::NodeHandle &n,
   arm_twist_.setZero();
   wrench_external_.setZero();
   wrench_desired_.setZero();
+  integral_force_error.setZero();
   desired_pose_position_ << desired_pose_.topRows(3);
   desired_pose_orientation_.coeffs() << desired_pose_.bottomRows(4)/desired_pose_.bottomRows(4).norm();
 
@@ -122,6 +126,7 @@ void Admittance::compute_admittance() {
 
   coupling_wrench_arm=   D_ * (arm_twist_ - arm_desired_twist) + K_*error;
 //    arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
+//arm twist in represented in base_Link
   arm_desired_acceleration_adm_ = M_.inverse() * (- coupling_wrench_arm + wrench_external_) + arm_desired_acceleration;
 
 
@@ -159,7 +164,11 @@ void Admittance::compute_admittance() {
 //!-                Hybrid Force/Position Control        -!//
 
 void Admittance::compute_hybrid_control() {
+
     // TODO:enable to set desired wrench by topic,add real force sensor in ee_link;
+    // Integrate for velocity based interface
+    ros::Duration duration = loop_rate_.expectedCycleTime();
+
     // 定义选择矩阵，1表示力控制，0表示位置控制
     Eigen::Matrix<double, 6, 6> selectionMatrix;
     selectionMatrix.setZero();
@@ -180,8 +189,19 @@ void Admittance::compute_hybrid_control() {
     error.bottomRows(3) << err_arm_des_orient.axis() * err_arm_des_orient.angle();
 
     // 力控制输出
-    Vector6d force_error = wrench_external_ - wrench_desired_;
-    Vector6d force_control_output = - K_ * force_error;
+    // PID 控制器增益
+    double Kp = 1; // 比例增益
+    double Ki = 0.01; // 积分增益
+//    double Kd = 0.5; // 微分增益
+    Vector6d force_error = - wrench_external_ + wrench_desired_;
+    // 积分项
+    integral_force_error += force_error * duration.toSec();
+
+    ROS_WARN_STREAM_THROTTLE(1, "wrench external!"
+            << " norm: " << wrench_external_);
+    ROS_WARN_STREAM_THROTTLE(1, "wrench desired!"
+            << " norm: " << wrench_desired_);
+    Vector6d force_control_output =  Kp * force_error + Ki * integral_force_error;
 
     // 位置控制输出
     Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + wrench_external_;
@@ -190,6 +210,7 @@ void Admittance::compute_hybrid_control() {
     Vector6d control_output = selectionMatrix * force_control_output + (Matrix6d::Identity() - selectionMatrix) * position_control_output;
 
     // 计算加速度
+    //arm twist in represented in base_Link
     arm_desired_acceleration = M_.inverse() * control_output;
 
     double a_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
@@ -203,8 +224,6 @@ void Admittance::compute_hybrid_control() {
                 << " norm: " << a_acc_norm);
     }
 
-    // Integrate for velocity based interface
-    ros::Duration duration = loop_rate_.expectedCycleTime();
     arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
 }
 
@@ -254,7 +273,8 @@ void Admittance::state_wrench_callback(
   Vector6d wrench_ft_frame;
   Matrix6d rotation_ft_base;
   if (ft_arm_ready_) {
-    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,0,0,0;
+//    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,0,0,0;
+      wrench_ft_frame <<  0,0,msg->wrench.force.z,0,0,0;
 
     float force_thres_lower_limit_ = 50;
     float force_thres_upper_limit_ = 100;
@@ -281,9 +301,17 @@ void Admittance::state_wrench_callback(
     //   wrench_ft_frame(2) = (1 - 0.2)*force_z_pre + 0.2*wrench_ft_frame(2);
     //   force_z_pre = wrench_ft_frame(2);
     // }
-    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
-    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
+//    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
+//    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
+    wrench_external_ << wrench_ft_frame;
   }
+}
+
+void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg) {
+    if (ft_arm_ready_) {
+    wrench_desired_ <<  0,0,msg->wrench.force.z,0,0,0;
+
+    }
 }
 
 //!-               COMMANDING THE ROBOT                  -!//

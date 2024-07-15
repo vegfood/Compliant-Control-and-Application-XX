@@ -19,6 +19,7 @@ int main(int argc, char **argv)
     std::string topic_arm_state;
     std::string topic_arm_command;
     std::string topic_wrench_state;
+    std::string topic_wrench_desired;
     std::string topic_desired_state;
 
     std::string base_link;
@@ -39,6 +40,7 @@ int main(int argc, char **argv)
     if (!nh.getParam("topic_arm_state", topic_arm_state)) { ROS_ERROR("Couldn't retrieve the topic name for the state of the arm."); return -1; }
     if (!nh.getParam("topic_arm_command", topic_arm_command)) { ROS_ERROR("Couldn't retrieve the topic name for commanding the arm."); return -1; }
     if (!nh.getParam("topic_wrench_state", topic_wrench_state)) { ROS_ERROR("Couldn't retrieve the topic name for the force/torque sensor."); return -1; }
+    if (!nh.getParam("topic_wrench_desired", topic_wrench_desired)) { ROS_ERROR("Couldn't retrieve the topic name for the desired wrench."); return -1; }
     if (!nh.getParam("topic_desired_state", topic_desired_state)) { ROS_ERROR("Couldn't retrieve the topic name for the desired arm state."); return -1; }
 
     // ADMITTANCE PARAMETERS
@@ -57,6 +59,7 @@ int main(int argc, char **argv)
         topic_arm_state,
         topic_arm_command,
         topic_wrench_state,
+        topic_wrench_desired,
         topic_desired_state,
         M, D, K, desired_pose,
         base_link,

@@ -82,11 +82,11 @@
     <provideFeedback>true</provideFeedback>
   </gazebo>
   <gazebo>
-    <pose>0 0.09 0 0 0 0</pose>
     <plugin name="wrench" filename="libgazebo_ros_ft_sensor.so">
       <updateRate>100.0</updateRate>
       <always_on>true</always_on>
       <visualize>true</visualize>
+      <topicName>wrench</topicName>
       <jointName>wrist_3_joint</jointName>
     </plugin>
   </gazebo>
@@ -109,7 +109,6 @@
 <!--    <sensor name="wrist_3_joint_force_torque" type="force_torque">-->
 <!--      <always_on>true</always_on>-->
 <!--      <update_rate>20.0</update_rate>-->
-<!--      <topicName>wrench</topicName>-->
 <!--      <visualize>true</visualize>-->
 <!--      <force_torque>-->
 <!--        <frame>sensor</frame>-->
