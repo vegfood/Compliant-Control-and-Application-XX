@@ -45,6 +45,7 @@ Admittance::Admittance(ros::NodeHandle &n,
   wrench_external_.setZero();
   wrench_desired_.setZero();
   integral_force_error.setZero();
+  last_force_error.setZero();
   desired_pose_position_ << desired_pose_.topRows(3);
   desired_pose_orientation_.coeffs() << desired_pose_.bottomRows(4)/desired_pose_.bottomRows(4).norm();
 
@@ -190,18 +191,31 @@ void Admittance::compute_hybrid_control() {
 
     // 力控制输出
     // PID 控制器增益
-    double Kp = 1; // 比例增益
+    double Kp = 0.1; // 比例增益
     double Ki = 0.01; // 积分增益
-//    double Kd = 0.5; // 微分增益
+    double Kd = 0.1; // 微分增益
+    double integral_limit = 10.0; // 积分限制
+
     Vector6d force_error = - wrench_external_ + wrench_desired_;
     // 积分项
     integral_force_error += force_error * duration.toSec();
+    // 积分项计算，考虑积分限制
+    for (int i = 0; i < 6; ++i) {
+        if (integral_force_error(i) > integral_limit) {
+            integral_force_error(i) = integral_limit;
+        } else if (integral_force_error(i) < -integral_limit) {
+            integral_force_error(i) = -integral_limit;
+        }
+    }
+    //微分项
+    Vector6d d_force_error = (force_error - last_force_error) / duration.toSec();
+    last_force_error = force_error;
 
     ROS_WARN_STREAM_THROTTLE(1, "wrench external!"
             << " norm: " << wrench_external_);
     ROS_WARN_STREAM_THROTTLE(1, "wrench desired!"
             << " norm: " << wrench_desired_);
-    Vector6d force_control_output =  Kp * force_error + Ki * integral_force_error;
+    Vector6d force_control_output =  -(Kp * force_error + Ki * integral_force_error + Kd * d_force_error);
 
     // 位置控制输出
     Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + wrench_external_;
@@ -273,42 +287,45 @@ void Admittance::state_wrench_callback(
   Vector6d wrench_ft_frame;
   Matrix6d rotation_ft_base;
   if (ft_arm_ready_) {
-//    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,0,0,0;
-      wrench_ft_frame <<  0,0,msg->wrench.force.z,0,0,0;
+    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,0,0,0;
+//      wrench_ft_frame <<  0,0,msg->wrench.force.z,0,0,0;
 
     float force_thres_lower_limit_ = 50;
     float force_thres_upper_limit_ = 100;
 
-    // Low-Pass Filter for real robot
-    // if(fabs(wrench_ft_frame(0)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(0)) > force_thres_upper_limit_){wrench_ft_frame(0) = 0;}
-    // else{
-    //   if(wrench_ft_frame(0) > 0){wrench_ft_frame(0) -= force_thres_lower_limit_;}
-    //   else{wrench_ft_frame(0) += force_thres_lower_limit_;}
-    //   wrench_ft_frame(0) = (1 - 0.2)*force_x_pre + 0.2*wrench_ft_frame(0);
-    //   force_x_pre = wrench_ft_frame(0);
-    // }
-    // if(fabs(wrench_ft_frame(1)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(1)) > force_thres_upper_limit_){wrench_ft_frame(1) = 0;}
-    // else{
-    //   if(wrench_ft_frame(1) > 0){wrench_ft_frame(1) -= force_thres_lower_limit_;}
-    //   else{wrench_ft_frame(1) += force_thres_lower_limit_;}
-    //   wrench_ft_frame(1) = (1 - 0.2)*force_y_pre + 0.2*wrench_ft_frame(1);
-    //   force_y_pre = wrench_ft_frame(1);
-    // }
-    // if(fabs(wrench_ft_frame(2)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(2)) > force_thres_upper_limit_){wrench_ft_frame(2) = 0;}
-    // else{
-    //   if(wrench_ft_frame(2) > 0){wrench_ft_frame(2) -= force_thres_lower_limit_;}
-    //   else{wrench_ft_frame(2) += force_thres_lower_limit_;}
-    //   wrench_ft_frame(2) = (1 - 0.2)*force_z_pre + 0.2*wrench_ft_frame(2);
-    //   force_z_pre = wrench_ft_frame(2);
-    // }
+//     Low-Pass Filter for real robot
+//     if(fabs(wrench_ft_frame(0)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(0)) > force_thres_upper_limit_){wrench_ft_frame(0) = 0;}
+//     else{
+//       if(wrench_ft_frame(0) > 0){wrench_ft_frame(0) -= force_thres_lower_limit_;}
+//       else{wrench_ft_frame(0) += force_thres_lower_limit_;}
+//       wrench_ft_frame(0) = (1 - 0.2)*force_x_pre + 0.2*wrench_ft_frame(0);
+//       force_x_pre = wrench_ft_frame(0);
+//     }
+//     if(fabs(wrench_ft_frame(1)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(1)) > force_thres_upper_limit_){wrench_ft_frame(1) = 0;}
+//     else{
+//       if(wrench_ft_frame(1) > 0){wrench_ft_frame(1) -= force_thres_lower_limit_;}
+//       else{wrench_ft_frame(1) += force_thres_lower_limit_;}
+//       wrench_ft_frame(1) = (1 - 0.2)*force_y_pre + 0.2*wrench_ft_frame(1);
+//       force_y_pre = wrench_ft_frame(1);
+//     }
+//     if(fabs(wrench_ft_frame(2)) < force_thres_lower_limit_ || fabs(wrench_ft_frame(2)) > force_thres_upper_limit_){wrench_ft_frame(2) = 0;}
+//     else{
+//       if(wrench_ft_frame(2) > 0){wrench_ft_frame(2) -= force_thres_lower_limit_;}
+//       else{wrench_ft_frame(2) += force_thres_lower_limit_;}
+//       wrench_ft_frame(2) = (1 - 0.2)*force_z_pre + 0.2*wrench_ft_frame(2);
+//       force_z_pre = wrench_ft_frame(2);
+//     }
 //    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
-//    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
-    wrench_external_ << wrench_ft_frame;
+      get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
+
+    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
+//    wrench_external_ << wrench_ft_frame;
   }
 }
 
 void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg) {
     if (ft_arm_ready_) {
+        //this force is wrt base_link
     wrench_desired_ <<  0,0,msg->wrench.force.z,0,0,0;
 
     }

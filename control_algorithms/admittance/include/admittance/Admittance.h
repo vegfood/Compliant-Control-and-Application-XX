@@ -79,6 +79,8 @@ protected:
 
   Vector6d      error;
   Vector6d      integral_force_error;
+  Vector6d      last_force_error;
+
 
   // TF:
   // Transform from base_link to world
