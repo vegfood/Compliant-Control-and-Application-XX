@@ -174,7 +174,14 @@ void Admittance::compute_hybrid_control() {
     Eigen::Matrix<double, 6, 6> selectionMatrix;
     selectionMatrix.setZero();
     selectionMatrix(2, 2) = 1; // Z轴使用力控制，其他轴使用位置控制
-
+    //将末端坐标系的选择矩阵转换到基坐标系下
+    Matrix6d rotation_ft_base;
+    get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
+//    ROS_WARN_STREAM_THROTTLE(1, "rotation_ft_base:" << rotation_ft_base);
+    Matrix6d rotation_base_ft;
+    get_rotation_matrix(rotation_base_ft, listener_ft_, base_link_, end_link_);
+//    ROS_WARN_STREAM_THROTTLE(1, "rotation_base_ft:" << rotation_ft_base);
+//    ROS_WARN_STREAM_THROTTLE(1, "selectionMatrix:" << selectionMatrix);
     // 计算位置误差和力误差
     error.topRows(3) = arm_position_ - desired_pose_position_;
     if(desired_pose_orientation_.coeffs().dot(arm_orientation_.coeffs()) < 0.0)
@@ -191,24 +198,28 @@ void Admittance::compute_hybrid_control() {
 
     // 力控制输出
     // PID 控制器增益
-    double Kp = 0.1; // 比例增益
-    double Ki = 0.01; // 积分增益
-    double Kd = 0.1; // 微分增益
-    double integral_limit = 10.0; // 积分限制
+    double Kp = 0.075; // 比例增益
+    double Ki = 0.0005; // 积分增益
+    double Kd = 0.2; // 微分增益
+    double integral_limit = 1000.0; // 积分限制
 
-    Vector6d force_error = - wrench_external_ + wrench_desired_;
+    Vector6d force_error = - wrench_external_ + wrench_desired_; //基坐标系下
     // 积分项
-    integral_force_error += force_error * duration.toSec();
+//    integral_force_error += force_error * duration.toSec();
+    integral_force_error += force_error;
+
     // 积分项计算，考虑积分限制
-    for (int i = 0; i < 6; ++i) {
-        if (integral_force_error(i) > integral_limit) {
-            integral_force_error(i) = integral_limit;
-        } else if (integral_force_error(i) < -integral_limit) {
-            integral_force_error(i) = -integral_limit;
-        }
-    }
+//    for (int i = 0; i < 6; ++i) {
+//        if (integral_force_error(i) > integral_limit) {
+//            integral_force_error(i) = integral_limit;
+//        } else if (integral_force_error(i) < -integral_limit) {
+//            integral_force_error(i) = -integral_limit;
+//        }
+//    }
     //微分项
-    Vector6d d_force_error = (force_error - last_force_error) / duration.toSec();
+//    Vector6d d_force_error = (force_error - last_force_error) / duration.toSec();
+    Vector6d d_force_error = (force_error - last_force_error);
+
     last_force_error = force_error;
 
     ROS_WARN_STREAM_THROTTLE(1, "wrench external!"
@@ -221,7 +232,9 @@ void Admittance::compute_hybrid_control() {
     Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + wrench_external_;
 
     // 混合控制输出
-    Vector6d control_output = selectionMatrix * force_control_output + (Matrix6d::Identity() - selectionMatrix) * position_control_output;
+    Vector6d control_output = rotation_ft_base * selectionMatrix * rotation_base_ft * force_control_output +
+            rotation_ft_base * (Matrix6d::Identity() - selectionMatrix) * rotation_base_ft * position_control_output;
+//    Vector6d control_output = selectionMatrix * force_control_output;
 
     // 计算加速度
     //arm twist in represented in base_Link
@@ -316,7 +329,7 @@ void Admittance::state_wrench_callback(
 //       force_z_pre = wrench_ft_frame(2);
 //     }
 //    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
-      get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
+    get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
 
     wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
 //    wrench_external_ << wrench_ft_frame;
@@ -325,8 +338,12 @@ void Admittance::state_wrench_callback(
 
 void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg) {
     if (ft_arm_ready_) {
-        //this force is wrt base_link
+        //this force is wrt end_link
     wrench_desired_ <<  0,0,msg->wrench.force.z,0,0,0;
+    Matrix6d rotation_ft_base;
+    get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
+    //convert this force into base_link
+    wrench_desired_ <<  rotation_ft_base * wrench_desired_;
 
     }
 }
