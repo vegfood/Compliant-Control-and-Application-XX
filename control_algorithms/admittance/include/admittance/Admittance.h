@@ -81,6 +81,8 @@ protected:
   Vector6d      integral_force_error;
   Vector6d      last_force_error;
 
+  Vector6d  main_force_control_axis;
+
 
   // TF:
   // Transform from base_link to world

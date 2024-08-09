@@ -173,7 +173,10 @@ void Admittance::compute_hybrid_control() {
     // 定义选择矩阵，1表示力控制，0表示位置控制
     Eigen::Matrix<double, 6, 6> selectionMatrix;
     selectionMatrix.setZero();
-    selectionMatrix(2, 2) = 1; // Z轴使用力控制，其他轴使用位置控制
+    for(int i=2; i < 6; i++){
+        selectionMatrix(i, i) = 1;
+//        selectionMatrix(i, i) = main_force_control_axis(i); // 力主控制轴使用力控制，其他轴使用位置控制
+    }
     //将末端坐标系的选择矩阵转换到基坐标系下
     Matrix6d rotation_ft_base;
     get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
@@ -196,14 +199,14 @@ void Admittance::compute_hybrid_control() {
     Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
     error.bottomRows(3) << err_arm_des_orient.axis() * err_arm_des_orient.angle();
 
-    // 力控制输出
+    // 力控制计算
     // PID 控制器增益
-    double Kp = 0.075; // 比例增益
-    double Ki = 0.0005; // 积分增益
-    double Kd = 0.2; // 微分增益
+    double Kp = 1; // 比例增益
+    double Ki = 0.0; // 积分增益
+    double Kd = 0; // 微分增益
     double integral_limit = 1000.0; // 积分限制
 
-    Vector6d force_error = - wrench_external_ + wrench_desired_; //基坐标系下
+    Vector6d force_error = - wrench_external_ + wrench_desired_; //末端坐标系下
     // 积分项
 //    integral_force_error += force_error * duration.toSec();
     integral_force_error += force_error;
@@ -223,17 +226,49 @@ void Admittance::compute_hybrid_control() {
     last_force_error = force_error;
 
     ROS_WARN_STREAM_THROTTLE(1, "wrench external!"
-            << " norm: " << wrench_external_);
+            << " norm: \n" << wrench_external_);
     ROS_WARN_STREAM_THROTTLE(1, "wrench desired!"
-            << " norm: " << wrench_desired_);
+            << " norm: \n" << wrench_desired_);
+    ROS_WARN_STREAM_THROTTLE(1, "force_error!"
+            << " norm: \n" << force_error);
+    //力控制输出
     Vector6d force_control_output =  -(Kp * force_error + Ki * integral_force_error + Kd * d_force_error);
 
     // 位置控制输出
-    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + wrench_external_;
+//    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + rotation_ft_base * wrench_external_; //添加阻抗
+    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) ; //纯位置控制，不加阻抗
 
+    //根据力控误差的情况确定力控和位控的维度
+    int force_error_limit = 5;
+    double torque_error_limit = 0.2;
+    double error_limit; // 根据 i 的值选择 force_error_limit 或 torque_error_limit
+    for (int i = 3; i < 6; i++) {
+        if (i < 3) {
+            error_limit = force_error_limit;
+        } else {
+            error_limit = torque_error_limit;
+        }
+
+
+        if (abs(force_error(i)) < error_limit && main_force_control_axis(i) < 1) {
+            selectionMatrix(i, i) = 0;
+
+        } else {
+            bool equal = (main_force_control_axis(i) == 0);
+            ROS_WARN_STREAM_THROTTLE(1, "abs(force_error(i)) \n" << abs(force_error(i)));
+            ROS_WARN_STREAM_THROTTLE(1, "main_force_control_axis \n" << main_force_control_axis(i));
+            ROS_WARN_STREAM_THROTTLE(1, "equal \n" << equal);
+
+            selectionMatrix(i, i) = 1;
+        }
+    }
+
+    ROS_WARN_STREAM_THROTTLE(1, "selectionMatrix \n" << selectionMatrix);
     // 混合控制输出
-    Vector6d control_output = rotation_ft_base * selectionMatrix * rotation_base_ft * force_control_output +
-            rotation_ft_base * (Matrix6d::Identity() - selectionMatrix) * rotation_base_ft * position_control_output;
+    Vector6d control_output = rotation_ft_base * selectionMatrix *  force_control_output +
+                              rotation_ft_base * (Matrix6d::Identity() - selectionMatrix) * rotation_base_ft * position_control_output;
+//    Vector6d control_output = rotation_ft_base * selectionMatrix * rotation_base_ft * force_control_output +
+//            rotation_ft_base * (Matrix6d::Identity() - selectionMatrix) * rotation_base_ft * position_control_output;
 //    Vector6d control_output = selectionMatrix * force_control_output;
 
     // 计算加速度
@@ -300,7 +335,8 @@ void Admittance::state_wrench_callback(
   Vector6d wrench_ft_frame;
   Matrix6d rotation_ft_base;
   if (ft_arm_ready_) {
-    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,0,0,0;
+    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,msg->wrench.torque.x,
+    msg->wrench.torque.y,msg->wrench.torque.z;
 //      wrench_ft_frame <<  0,0,msg->wrench.force.z,0,0,0;
 
     float force_thres_lower_limit_ = 50;
@@ -329,21 +365,25 @@ void Admittance::state_wrench_callback(
 //       force_z_pre = wrench_ft_frame(2);
 //     }
 //    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
-    get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
+//    get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
 
-    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
-//    wrench_external_ << wrench_ft_frame;
+//this force is represented is base_link
+//    wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
+
+//this force is represented in eef link
+    wrench_external_ << wrench_ft_frame;
   }
 }
 
 void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg) {
     if (ft_arm_ready_) {
         //this force is wrt end_link
+    main_force_control_axis << 0,0,1,0,0,0;
     wrench_desired_ <<  0,0,msg->wrench.force.z,0,0,0;
     Matrix6d rotation_ft_base;
     get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
     //convert this force into base_link
-    wrench_desired_ <<  rotation_ft_base * wrench_desired_;
+//    wrench_desired_ <<  rotation_ft_base * wrench_desired_;
 
     }
 }
