@@ -173,10 +173,18 @@ void Admittance::compute_hybrid_control() {
     // 定义选择矩阵，1表示力控制，0表示位置控制
     Eigen::Matrix<double, 6, 6> selectionMatrix;
     selectionMatrix.setZero();
-    for(int i=2; i < 6; i++){
-        selectionMatrix(i, i) = 1;
-//        selectionMatrix(i, i) = main_force_control_axis(i); // 力主控制轴使用力控制，其他轴使用位置控制
+//    for(int i=2; i < 6; i++){
+//        selectionMatrix(i, i) = 1;
+////        selectionMatrix(i, i) = main_force_control_axis(i); // 力主控制轴使用力控制，其他轴使用位置控制
+//    }
+    if (abs(wrench_desired_[2]) > 0 && abs(wrench_external_[2]) > 0.1) {
+        //启用力控
+        selectionMatrix(2,2) =1; //z轴力控
+        selectionMatrix(3,3) =1; //rx轴力控
+        selectionMatrix(4,4) =1; //ry轴力控
     }
+
+
     //将末端坐标系的选择矩阵转换到基坐标系下
     Matrix6d rotation_ft_base;
     get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
@@ -242,26 +250,26 @@ void Admittance::compute_hybrid_control() {
     int force_error_limit = 5;
     double torque_error_limit = 0.2;
     double error_limit; // 根据 i 的值选择 force_error_limit 或 torque_error_limit
-    for (int i = 3; i < 6; i++) {
-        if (i < 3) {
-            error_limit = force_error_limit;
-        } else {
-            error_limit = torque_error_limit;
-        }
-
-
-        if (abs(force_error(i)) < error_limit && main_force_control_axis(i) < 1) {
-            selectionMatrix(i, i) = 0;
-
-        } else {
-            bool equal = (main_force_control_axis(i) == 0);
-            ROS_WARN_STREAM_THROTTLE(1, "abs(force_error(i)) \n" << abs(force_error(i)));
-            ROS_WARN_STREAM_THROTTLE(1, "main_force_control_axis \n" << main_force_control_axis(i));
-            ROS_WARN_STREAM_THROTTLE(1, "equal \n" << equal);
-
-            selectionMatrix(i, i) = 1;
-        }
-    }
+//    for (int i = 3; i < 6; i++) {
+//        if (i < 3) {
+//            error_limit = force_error_limit;
+//        } else {
+//            error_limit = torque_error_limit;
+//        }
+//
+//
+//        if (abs(force_error(i)) < error_limit && main_force_control_axis(i) < 1) {
+//            selectionMatrix(i, i) = 0;
+//
+//        } else {
+//            bool equal = (main_force_control_axis(i) == 0);
+//            ROS_WARN_STREAM_THROTTLE(1, "abs(force_error(i)) \n" << abs(force_error(i)));
+//            ROS_WARN_STREAM_THROTTLE(1, "main_force_control_axis \n" << main_force_control_axis(i));
+//            ROS_WARN_STREAM_THROTTLE(1, "equal \n" << equal);
+//
+//            selectionMatrix(i, i) = 1;
+//        }
+//    }
 
     ROS_WARN_STREAM_THROTTLE(1, "selectionMatrix \n" << selectionMatrix);
     // 混合控制输出
