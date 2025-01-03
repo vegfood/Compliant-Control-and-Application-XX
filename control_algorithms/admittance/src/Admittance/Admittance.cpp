@@ -96,8 +96,8 @@ void Admittance::run() {
 
   while (nh_.ok()) {
 
-//    compute_admittance();
-    compute_hybrid_control();
+    compute_admittance();
+//    compute_hybrid_control();
     send_commands_to_robot();
 
     ros::spinOnce();
@@ -129,6 +129,31 @@ void Admittance::compute_admittance() {
 //    arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
 //arm twist in represented in base_Link
   arm_desired_acceleration_adm_ = M_.inverse() * (- coupling_wrench_arm + wrench_external_) + arm_desired_acceleration;
+  //在此添加新的导纳控制计算末端参考位置的方法x_r = x_d + 积分累加项;
+  // 等价于x_r(t) = x_r(t-1) + 2W*exp(-r*delta_t)*sinh(p*delta_t)*f_external*delta_t
+  //W = sqrt(M_d^-2 * B_d^2-4M_d^-1 * K_d)^-1, p=1/(2*W), r=1/M_d * B_d
+
+  // 计算W, p, r的函数
+  MatrixXd W = MatrixXd::Zero(6, 6);
+  MatrixXd p = MatrixXd::Zero(6, 6);
+  MatrixXd r = MatrixXd::Zero(6, 6);
+
+  for (int i=0; i < 6; i++){
+      double delta_t = loop_rate_.expectedCycleTime().toSec();
+      W(i,i) = 1.0 / std::sqrt(std::pow(1.0 / M_(i, i), 2) * std::pow(D_(i,i), 2) -
+              4 * (1.0 /  M_(i, i)) * K_(i,i));
+      p(i,i) = 1.0 / (2 * W(i,i));
+      r(i,i) = 1.0 / M_(i, i) * D_(i,i) * 0.5;
+      //计算期望位置x_r对应的速度
+      //todo:改为位置控制器
+      arm_desired_twist_adm_(i) = arm_desired_twist_adm_(i) + 2 * W(i,i) *
+              std::exp(-r(i,i) * delta_t) * std::sinh(p(i,i) * delta_t) * wrench_external_(i)
+              * delta_t;
+//      arm_desired_twist_adm_(i) = arm_desired_twist_adm_(i) + 2 * W(i,i) *
+//              std::exp(-r(i,i) * delta_t) * std::sinh(p(i,i) * delta_t) * wrench_external_(i);
+  }
+
+
 
 
 //  double a_acc_norm = (arm_desired_acceleration.segment(0, 3)).norm();
@@ -157,7 +182,7 @@ void Admittance::compute_admittance() {
   ros::Duration duration = loop_rate_.expectedCycleTime();
 //  arm_desired_twist_adm_ += arm_desired_acceleration * duration.toSec();
 //  arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
-  arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_twist_;
+//  arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_twist_;
 
 
 }
