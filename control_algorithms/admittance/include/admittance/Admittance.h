@@ -61,22 +61,35 @@ protected:
   ros::Publisher pub_arm_cmd_;
 
   // Variables:
+  //当前机械臂末端的位姿和速度
   Vector3d      arm_position_;
   Quaterniond   arm_orientation_;
   Vector6d      arm_twist_;
+
+  //末端测量的外力，与交互力h_e的方向相反
   Vector6d      wrench_external_;
+  //期望的外力, 默认方向与h_e方向相同
   Vector6d      wrench_desired_;
 
+  // 导纳控制器输出：末端柔顺坐标系的速度，v_c of compliant frame
   Vector6d      arm_desired_twist_adm_;
-  Vector6d      arm_desired_acceleration;
-  Vector6d      arm_desired_twist;
+  // 导纳控制器输出：末端柔顺坐标系的加速度，a_c of compliant frame
   Vector6d      arm_desired_acceleration_adm_;
+  // 导纳控制器输出：末端柔顺坐标系的位姿，x_c of compliant frame
+  Vector3d      desired_pose_position_adm_;
+  Quaterniond   desired_pose_orientation_adm_;
 
+  // 导纳控制器输入：末端坐标系期望加速度，a_d of desired frame
+  Vector6d      arm_desired_acceleration;
+  // 导纳控制器输入：末端坐标系期望速度，v_d of desired frame
+  Vector6d      arm_desired_twist;
 
+  // 导纳控制器输入：末端坐标系期望位姿，x_d of desired frame
   Vector7d      desired_pose_;
   Vector3d      desired_pose_position_;
   Quaterniond   desired_pose_orientation_;
 
+  //柔顺坐标系的位姿x_c与期望位姿x_d的差值，error = x_d - x_c
   Vector6d      error;
   Vector6d      integral_force_error;
   Vector6d      last_force_error;
@@ -141,6 +154,7 @@ private:
 private:
   std::string   base_link_;
   std::string   end_link_;
+  std::string   control_frame_;
 };
 
 #endif // ADMITTANCE_H
