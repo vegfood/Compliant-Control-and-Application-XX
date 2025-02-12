@@ -90,11 +90,14 @@ protected:
   Quaterniond   desired_pose_orientation_;
 
   //柔顺坐标系的位姿x_c与期望位姿x_d的差值，error = x_d - x_c
+  //delta_x_pre，dot_delta_x_pre:上一时刻的位置误差和速度误差，用于计算当前时刻的加速度误差
+  Vector6d      delta_x_pre;
+  Vector6d      dot_delta_x_pre;
   Vector6d      error;
   Vector6d      integral_force_error;
   Vector6d      last_force_error;
 
-  Vector6d  main_force_control_axis;
+  Vector6d      main_force_control_axis;
 
 
   // TF:
@@ -136,6 +139,7 @@ public:
 private:
   // Control
   void compute_admittance();
+  void compute_admittance_velocity_interface();
   void compute_hybrid_control();
   // Callbacks
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);

@@ -48,7 +48,11 @@ Admittance::Admittance(ros::NodeHandle &n,
   last_force_error.setZero();
   desired_pose_position_ << desired_pose_.topRows(3);
   desired_pose_orientation_.coeffs() << desired_pose_.bottomRows(4)/desired_pose_.bottomRows(4).norm();
+  arm_desired_twist.setZero();
+  arm_desired_acceleration.setZero();
 
+  arm_desired_twist_adm_.setZero();
+  arm_desired_acceleration_adm_.setZero();
 
 
   while (nh_.ok() && !arm_position_(0)) {
@@ -58,9 +62,9 @@ Admittance::Admittance(ros::NodeHandle &n,
   }
 
   // Init integrator
-  arm_desired_twist_adm_.setZero();
-  arm_desired_twist.setZero();
-  arm_desired_acceleration.setZero();
+  delta_x_pre.setZero();
+  dot_delta_x_pre.setZero();
+
 
 
   ft_arm_ready_ = false;
@@ -96,8 +100,9 @@ void Admittance::run() {
 
   while (nh_.ok()) {
 
+    compute_admittance_velocity_interface();
 //    compute_admittance();
-    compute_hybrid_control();
+//    compute_hybrid_control();
     send_commands_to_robot();
 
     ros::spinOnce();
@@ -106,9 +111,57 @@ void Admittance::run() {
 }
 
 //!-                Admittance Dynamics                  -!//
+void Admittance::compute_admittance_velocity_interface() {
+    //基于内环为速度的导纳控制器：K_d(v_d - v_e) + K_p(x_d - x_e) = h_e, v_r(v_e) = v_d + K_d.inverse()*(K_p(x_d - x_e) - h_e)
+    //D，K矩阵默认为定义在控制坐标系下的对角矩阵
+    //为了简化处理，选择末端坐标系作为控制坐标系,即control frame 等于 end_frame
+
+    // D_base = rot_control_base * D * rot_control_base.transpose()
+    // K_base = rot_control_base * K * rot_control_base.transpose()
+    Eigen::Matrix<double, 6, 6> D_base = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> K_base = Eigen::Matrix<double, 6, 6>::Zero();
+
+    //求解控制坐标系在基坐标系下的旋转矩阵
+    Matrix6d rot_control_base;
+    get_rotation_matrix(rot_control_base, listener_ft_, control_frame_, base_link_);
+    //求解基坐标系下的各项矩阵
+    D_base = rot_control_base * D_ * rot_control_base.transpose();
+    K_base = rot_control_base * K_ * rot_control_base.transpose();
+
+    //基坐标系下：计算位姿误差
+    // Translation error，x_d - x_e
+    error.topRows(3) = desired_pose_position_ - arm_position_;
+    if(arm_orientation_.coeffs().dot(desired_pose_orientation_.coeffs()) < 0.0)
+    {
+        arm_orientation_.coeffs() << -arm_orientation_.coeffs();
+    }
+
+    //期望坐标系相对于基坐标系的旋转矩阵, 参考https://github.com/frankaemika/libfranka/blob/main/examples/cartesian_impedance_control.cpp
+    Matrix3d R_desired_base = desired_pose_orientation_.toRotationMatrix();
+    Eigen::Quaterniond quat_rot_err (desired_pose_orientation_.inverse() * arm_orientation_);
+    if(quat_rot_err.coeffs().norm() > 1e-3)
+    {
+      quat_rot_err.coeffs() << quat_rot_err.coeffs()/quat_rot_err.coeffs().norm();
+    }
+    //表示在期望姿态坐标系下的相对姿态误差
+    Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
+
+    error.bottomRows(3) << - R_desired_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
+
+    //求解基坐标系下的交互力, 交互力与测量受到的外力方向相反, 希望的交互力默认在末端坐标系下表示，故两者之差表示合交互力
+    Matrix6d rot_ft_base;
+    get_rotation_matrix(rot_ft_base, listener_ft_, end_link_, base_link_);
+    Vector6d F_base = rot_ft_base * (-wrench_external_ - wrench_desired_);
+
+    //求解速度环的参考速度v_r =  v_d + K_d.inverse()*(K_p(x_d - x_e) - h_e)
+
+    arm_desired_twist_adm_ = arm_desired_twist +  D_base.inverse()* (K_base*error -  F_base);
+
+
+}
 
 void Admittance::compute_admittance() {
- //基于速度接口的导纳控制器
+ //基于内环为速度和位置接口的导纳控制器：未完成位置部分
  //M，D，K矩阵默认为定义在控制坐标系下的对角矩阵
  //为了简化处理，选择末端坐标系作为控制坐标系,即control frame 等于 end_frame
 
@@ -127,36 +180,35 @@ void Admittance::compute_admittance() {
   D_base = rot_control_base * D_ * rot_control_base.transpose();
   K_base = rot_control_base * K_ * rot_control_base.transpose();
 
- //基坐标系下
+ //基坐标系下：计算位姿误差
   // Translation error，x_d - x_c
-  error.topRows(3) = desired_pose_position_ - desired_pose_position_adm_;//x_d - x_c
-  if(desired_pose_orientation_adm_.coeffs().dot(desired_pose_orientation_.coeffs()) < 0.0)
-  {
-      desired_pose_orientation_adm_.coeffs() << -desired_pose_orientation_adm_.coeffs();
-  }
+//  error.topRows(3) = desired_pose_position_ - desired_pose_position_adm_;//x_d - x_c
+//  if(desired_pose_orientation_adm_.coeffs().dot(desired_pose_orientation_.coeffs()) < 0.0)
+//  {
+//      desired_pose_orientation_adm_.coeffs() << -desired_pose_orientation_adm_.coeffs();
+//  }
+//
+//  //柔顺坐标系相对于基坐标系的旋转矩阵
+//  Matrix3d R_control_base = desired_pose_orientation_adm_.toRotationMatrix();
+//
+//  Eigen::Quaterniond quat_rot_err (desired_pose_orientation_.inverse() * desired_pose_orientation_adm_);
+//  if(quat_rot_err.coeffs().norm() > 1e-3)
+//  {
+//    quat_rot_err.coeffs() << quat_rot_err.coeffs()/quat_rot_err.coeffs().norm();
+//  }
+//  //表示在compliant frame下的相对姿态误差
+//  Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
+//  //柔顺坐标系下的姿态误差转换到基坐标系下， epsilon_d_c_wrt_base = R_c * epsilon_d_c_wrt_c ? epsilon_d_c_wrt_base = R_c.transpose()
+//  // * epsilon_d_c_wrt_c(force_control pdf)
+//  error.bottomRows(3) << - R_control_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
 
-  //柔顺坐标系相对于基坐标系的旋转矩阵
-  Matrix3d R_control_base = desired_pose_orientation_adm_.toRotationMatrix();
-
-  Eigen::Quaterniond quat_rot_err (desired_pose_orientation_adm_.inverse() * desired_pose_orientation_);
-  if(quat_rot_err.coeffs().norm() > 1e-3)
-  {
-    quat_rot_err.coeffs() << quat_rot_err.coeffs()/quat_rot_err.coeffs().norm();
-  }
-  //表示在compliant frame下的相对姿态误差
-  Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
-  //柔顺坐标系下的姿态误差转换到基坐标系下， epsilon_d_c_wrt_base = R_c * epsilon_d_c_wrt_c ? epsilon_d_c_wrt_base = R_c.transpose()
-  // * epsilon_d_c_wrt_c(force_control pdf)
-  error.bottomRows(3) << R_control_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
-
-  //求解基坐标系下的交互力, 交互力与测量受到的外力方向相反
+  //求解基坐标系下的交互力, 交互力与测量受到的外力方向相反, 希望的交互力默认在末端坐标系下表示，故两者之差表示合交互力
   Matrix6d rot_ft_base;
   get_rotation_matrix(rot_ft_base, listener_ft_, end_link_, base_link_);
-  Vector6d F_base = - rot_ft_base * wrench_external_;
-  Vector6d dot_error = arm_desired_twist - arm_desired_twist_adm_; //v_d - v_c
-  // a_d - a_c
-  Vector6d  delta_acc_twist_ = M_base.inverse() * (F_base - D_base*dot_error - K_base*error);
-  arm_desired_acceleration_adm_ = arm_desired_acceleration - delta_acc_twist_;
+  Vector6d F_base = rot_ft_base * (-wrench_external_ - wrench_desired_);
+//  Vector6d dot_error = arm_desired_twist - arm_desired_twist_adm_; //v_d - v_c
+  // a_d - a_c, ddot_delta_x_n
+  Vector6d  delta_acc_twist_ = M_base.inverse() * (F_base - D_base*dot_delta_x_pre - K_base*delta_x_pre);
 
   //判断线性角速度是否超过阈值
   double a_acc_norm = (arm_desired_acceleration_adm_.segment(0, 3)).norm();
@@ -172,10 +224,14 @@ void Admittance::compute_admittance() {
 
   // Integrate for velocity based interface
   ros::Duration duration = loop_rate_.expectedCycleTime();
+  //dot_delta_x_n = dot_delta_x_n-1 + ddot_delta_x_n * delta_t
+  dot_delta_x_pre += delta_acc_twist_ * duration.toSec();
+  //delta_x_n = delta_x_n-1 + dot_delta_x_n * delta_t
+  delta_x_pre += dot_delta_x_pre * duration.toSec();
 
-  arm_desired_twist_adm_ = arm_desired_acceleration_adm_ * duration.toSec() + arm_desired_twist_adm_;
-  desired_pose_position_adm_ = desired_pose_position_adm_ + arm_desired_twist_adm_.head(3) * duration.toSec();
-//  desired_pose_orientation_adm_ = desired_pose_orientation_adm_ + arm_desired_twist_adm_.tail(3) * duration.toSec();
+  //更新参考加速度，速度，位置
+  arm_desired_acceleration_adm_ = arm_desired_acceleration - delta_acc_twist_;
+  arm_desired_twist_adm_ = arm_desired_twist - dot_delta_x_pre;
 
 }
 
