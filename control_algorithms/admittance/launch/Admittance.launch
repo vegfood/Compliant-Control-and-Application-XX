@@ -6,9 +6,9 @@
 
   <arg name="TOPIC_ARM_STATE" default="/cartesian_velocity_controller/ee_state"/>
   <arg name="TOPIC_ARM_COMMAND" default="/cartesian_velocity_controller/command_cart_vel"/>
-<!--  <arg name="TOPIC_WRENCH_STATE" default="/wrench_fake"/>-->
-  <arg name="TOPIC_WRENCH_DESIRED" default="/wrench_fake"/>
-  <arg name="TOPIC_WRENCH_STATE" default="/wrench"/>
+  <arg name="TOPIC_WRENCH_STATE" default="/wrench_fake"/>
+  <arg name="TOPIC_WRENCH_DESIRED" default="/wrench_desired"/>
+<!--  <arg name="TOPIC_WRENCH_STATE" default="/wrench"/>-->
   <arg name="TOPIC_DESIRED_STATE" default="/cartesian_velocity_controller/desired_state"/>
 
 
