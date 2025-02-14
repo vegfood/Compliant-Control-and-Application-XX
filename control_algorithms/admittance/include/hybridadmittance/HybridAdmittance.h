@@ -48,7 +48,7 @@ protected:
   ros::Subscriber sub_arm_state_;
   ros::Subscriber sub_wrench_state_;
   // Publishers:
-  ros::Publisher  pub_arm_cmd_;
+  ros::Publisher  pub_arm_twist_cmd_;
   ros::Publisher  pub_car_cmd_;
 
   // Variables:
@@ -56,7 +56,7 @@ protected:
   Quaterniond   arm_orientation_;
   Vector6d      arm_twist_;
   Vector6d      wrench_external_;
-  Vector6d      arm_desired_twist_adm_;
+  Vector6d      arm_desired_velocity_twist_adm_;
   Vector6d      arm_desired_acceleration;
   Vector6d      car_desired_twist_adm_;
   Vector6d      car_desired_accelaration;

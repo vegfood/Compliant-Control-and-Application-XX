@@ -58,7 +58,8 @@ protected:
   ros::Subscriber sub_wrench_desired_;
 
   // Publishers:
-  ros::Publisher pub_arm_cmd_;
+  ros::Publisher pub_arm_twist_cmd_;
+  ros::Publisher pub_arm_pose_cmd_;
 
   // Variables:
   //当前机械臂末端的位姿和速度
@@ -72,18 +73,18 @@ protected:
   Vector6d      wrench_desired_;
 
   // 导纳控制器输出：末端柔顺坐标系的速度，v_c of compliant frame
-  Vector6d      arm_desired_twist_adm_;
+  Vector6d      arm_desired_velocity_twist_adm_;
   // 导纳控制器输出：末端柔顺坐标系的加速度，a_c of compliant frame
   Vector6d      arm_desired_acceleration_adm_;
   // 导纳控制器输出：末端柔顺坐标系的位姿，x_c of compliant frame
+  Vector7d      desired_pose_adm_;
   Vector3d      desired_pose_position_adm_;
   Quaterniond   desired_pose_orientation_adm_;
 
   // 导纳控制器输入：末端坐标系期望加速度，a_d of desired frame
   Vector6d      arm_desired_acceleration;
   // 导纳控制器输入：末端坐标系期望速度，v_d of desired frame
-  Vector6d      arm_desired_twist;
-
+  Vector6d      arm_desired_velocity_twist;
   // 导纳控制器输入：末端坐标系期望位姿，x_d of desired frame
   Vector7d      desired_pose_;
   Vector3d      desired_pose_position_;
@@ -138,7 +139,7 @@ public:
   void run();
 private:
   // Control
-  void compute_admittance();
+  Vector7d compute_admittance();
   void compute_admittance_velocity_interface();
   void compute_hybrid_control();
   // Callbacks
@@ -147,8 +148,9 @@ private:
   void desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg);
   void state_desired_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
 
-  // 
-  void send_commands_to_robot();
+  //
+  void send_commands_to_robot(const Vector6d & cmd);
+  void send_commands_to_robot(const Vector7d & cmd);
 
   // 
   void wait_for_transformations();

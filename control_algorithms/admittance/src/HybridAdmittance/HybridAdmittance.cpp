@@ -28,7 +28,7 @@ Admittance::Admittance(ros::NodeHandle &n,
       &Admittance::state_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
 
   //* Publishers
-  pub_arm_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
+  pub_arm_twist_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
   pub_car_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_car_command, 5);
 
   // initializing the class variables
@@ -47,7 +47,7 @@ Admittance::Admittance(ros::NodeHandle &n,
   }
 
   // Init integrator
-  arm_desired_twist_adm_.setZero();
+  arm_desired_velocity_twist_adm_.setZero();
 
   car_desired_twist_adm_.setZero();
 
@@ -113,7 +113,7 @@ void Admittance::compute_admittance() {
   Vector6d coupling_wrench_arm;
   Vector6d coupling_wrench_car;
 
-  coupling_wrench_arm =  D_ * (arm_desired_twist_adm_)  + K_*error;
+  coupling_wrench_arm =  D_ * (arm_desired_velocity_twist_adm_) + K_ * error;
     arm_desired_acceleration = M_.inverse() * (- coupling_wrench_arm + wrench_external_);
 
   coupling_wrench_car = Dcar_ * (car_desired_twist_adm_);
@@ -134,7 +134,7 @@ void Admittance::compute_admittance() {
   }
   // Integrate for velocity based interface
   ros::Duration duration = loop_rate_.expectedCycleTime();
-  arm_desired_twist_adm_ += arm_desired_acceleration * duration.toSec();
+    arm_desired_velocity_twist_adm_ += arm_desired_acceleration * duration.toSec();
   car_desired_twist_adm_ += car_desired_accelaration *  duration.toSec();
 }
 
@@ -177,13 +177,13 @@ void Admittance::state_wrench_callback(
 void Admittance::send_commands_to_robot() {
   geometry_msgs::Twist arm_twist_cmd;
 
-  arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0);
-  arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1);
-  arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2);
-  arm_twist_cmd.angular.x = arm_desired_twist_adm_(3);
-  arm_twist_cmd.angular.y = arm_desired_twist_adm_(4);
-  arm_twist_cmd.angular.z = arm_desired_twist_adm_(5);
-  pub_arm_cmd_.publish(arm_twist_cmd);
+  arm_twist_cmd.linear.x  = arm_desired_velocity_twist_adm_(0);
+  arm_twist_cmd.linear.y  = arm_desired_velocity_twist_adm_(1);
+  arm_twist_cmd.linear.z  = arm_desired_velocity_twist_adm_(2);
+  arm_twist_cmd.angular.x = arm_desired_velocity_twist_adm_(3);
+  arm_twist_cmd.angular.y = arm_desired_velocity_twist_adm_(4);
+  arm_twist_cmd.angular.z = arm_desired_velocity_twist_adm_(5);
+  pub_arm_twist_cmd_.publish(arm_twist_cmd);
 }
 
 void Admittance::send_commands_to_car() {

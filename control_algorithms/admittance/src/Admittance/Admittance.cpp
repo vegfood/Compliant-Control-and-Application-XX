@@ -37,7 +37,8 @@ Admittance::Admittance(ros::NodeHandle &n,
   sub_desired_state_        = nh_.subscribe(topic_desired_state, 5,
                                              &Admittance::state_desired_callback, this,ros::TransportHints().reliable().tcpNoDelay());
   //* Publishers
-  pub_arm_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
+//  pub_arm_twist_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
+  pub_arm_pose_cmd_              = nh_.advertise<geometry_msgs::Pose>(topic_arm_command, 5);
 
   // initializing the class variables
   arm_position_.setZero();
@@ -48,10 +49,10 @@ Admittance::Admittance(ros::NodeHandle &n,
   last_force_error.setZero();
   desired_pose_position_ << desired_pose_.topRows(3);
   desired_pose_orientation_.coeffs() << desired_pose_.bottomRows(4)/desired_pose_.bottomRows(4).norm();
-  arm_desired_twist.setZero();
+  arm_desired_velocity_twist.setZero();
   arm_desired_acceleration.setZero();
 
-  arm_desired_twist_adm_.setZero();
+  arm_desired_velocity_twist_adm_.setZero();
   arm_desired_acceleration_adm_.setZero();
 
 
@@ -100,10 +101,10 @@ void Admittance::run() {
 
   while (nh_.ok()) {
 
-    compute_admittance_velocity_interface();
-//    compute_admittance();
+//    compute_admittance_velocity_interface();
+    Vector7d cmd = compute_admittance();
 //    compute_hybrid_control();
-    send_commands_to_robot();
+    send_commands_to_robot(cmd);
 
     ros::spinOnce();
     loop_rate_.sleep();
@@ -155,12 +156,12 @@ void Admittance::compute_admittance_velocity_interface() {
 
     //求解速度环的参考速度v_r =  v_d + K_d.inverse()*(K_p(x_d - x_e) - h_e)
 
-    arm_desired_twist_adm_ = arm_desired_twist +  D_base.inverse()* (K_base*error -  F_base);
+    arm_desired_velocity_twist_adm_ = arm_desired_velocity_twist + D_base.inverse() * (K_base * error - F_base);
 
 
 }
 
-void Admittance::compute_admittance() {
+Vector7d Admittance::compute_admittance() {
  //基于内环为速度和位置接口的导纳控制器：未完成位置部分
  //M，D，K矩阵默认为定义在控制坐标系下的对角矩阵
  //为了简化处理，选择末端坐标系作为控制坐标系,即control frame 等于 end_frame
@@ -206,16 +207,18 @@ void Admittance::compute_admittance() {
   Matrix6d rot_ft_base;
   get_rotation_matrix(rot_ft_base, listener_ft_, end_link_, base_link_);
   Vector6d F_base = rot_ft_base * (-wrench_external_ - wrench_desired_);
-//  Vector6d dot_error = arm_desired_twist - arm_desired_twist_adm_; //v_d - v_c
+  ROS_WARN_STREAM_THROTTLE(1, "Total force detected in base_frame!"
+            << " norm: " << F_base);
+//  Vector6d dot_error = arm_desired_velocity_twist - arm_desired_velocity_twist_adm_; //v_d - v_c
   // a_d - a_c, ddot_delta_x_n
   Vector6d  delta_acc_twist_ = M_base.inverse() * (F_base - D_base*dot_delta_x_pre - K_base*delta_x_pre);
 
   //判断线性角速度是否超过阈值
-  double a_acc_norm = (arm_desired_acceleration_adm_.segment(0, 3)).norm();
+  double a_acc_norm = (delta_acc_twist_.segment(0, 3)).norm();
   if (a_acc_norm > arm_max_acc_) {
-    ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm accelaration!"
+    ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm acceleration!"
                              << " norm: " << a_acc_norm);
-    arm_desired_acceleration_adm_.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
+      delta_acc_twist_.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
   }
   else {
       ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm accelaration!"
@@ -227,11 +230,44 @@ void Admittance::compute_admittance() {
   //dot_delta_x_n = dot_delta_x_n-1 + ddot_delta_x_n * delta_t
   dot_delta_x_pre += delta_acc_twist_ * duration.toSec();
   //delta_x_n = delta_x_n-1 + dot_delta_x_n * delta_t
-  delta_x_pre += dot_delta_x_pre * duration.toSec();
+  delta_x_pre.topRows(3) += dot_delta_x_pre.topRows(3) * duration.toSec();
+  //计算姿态误差
+  Vector3d theta = delta_x_pre.bottomRows(3) * duration.toSec();
+  double angle = theta.norm();
+  if (angle > 1e-3){
+      AngleAxisd delta_rot(angle, theta.normalized());
+      AngleAxisd rot(delta_x_pre.bottomRows(3).norm(), delta_x_pre.bottomRows(3).normalized());
+      Quaterniond dq(delta_rot);
+      Quaterniond q(rot);
+      q = dq * q; //角速度描述在基坐标系下，左乘
+      q.normalize();
+      Eigen::AngleAxisd orient_error(q);
+      delta_x_pre.bottomRows(3) = orient_error.angle() * orient_error.axis();
+  }
 
   //更新参考加速度，速度，位置
   arm_desired_acceleration_adm_ = arm_desired_acceleration - delta_acc_twist_;
-  arm_desired_twist_adm_ = arm_desired_twist - dot_delta_x_pre;
+  arm_desired_velocity_twist_adm_ = arm_desired_velocity_twist - dot_delta_x_pre;
+  desired_pose_position_adm_ = desired_pose_position_ - delta_x_pre.topRows(3);
+
+  //更新期望姿态
+  Vector3d theta_n = delta_x_pre.bottomRows(3) * duration.toSec();
+  double angle_n = theta_n.norm();
+  if (angle_n > 1e-3){
+      AngleAxisd delta_rot_n(angle_n, theta_n.normalized());
+      Quaterniond dq(delta_rot_n);
+      desired_pose_orientation_adm_ = dq.inverse() * desired_pose_orientation_; //角速度描述在基坐标系下，左乘
+      desired_pose_orientation_adm_.normalize();
+  }
+  else{
+      desired_pose_orientation_adm_ = desired_pose_orientation_;
+  }
+
+  //更新位姿命令
+  desired_pose_adm_.topRows(3) = desired_pose_position_adm_;
+  desired_pose_adm_.bottomRows(4) = desired_pose_orientation_adm_.coeffs();
+
+  return desired_pose_adm_;
 
 }
 
@@ -316,8 +352,8 @@ void Admittance::compute_hybrid_control() {
     Vector6d force_control_output =  -(Kp * force_error + Ki * integral_force_error + Kd * d_force_error);
 
     // 位置控制输出
-//    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) + rotation_ft_base * wrench_external_; //添加阻抗
-    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_twist) + K_*error) ; //纯位置控制，不加阻抗
+//    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_velocity_twist) + K_*error) + rotation_ft_base * wrench_external_; //添加阻抗
+    Vector6d position_control_output = -(D_ * (arm_twist_ - arm_desired_velocity_twist) + K_ * error) ; //纯位置控制，不加阻抗
 
     //根据力控误差的情况确定力控和位控的维度
     int force_error_limit = 5;
@@ -367,7 +403,7 @@ void Admittance::compute_hybrid_control() {
                 << " norm: " << a_acc_norm);
     }
 
-    arm_desired_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
+    arm_desired_velocity_twist_adm_ = arm_desired_acceleration * duration.toSec() + arm_twist_;
 }
 
 
@@ -403,7 +439,7 @@ void Admittance::state_desired_callback(
             msg->pose.orientation.z,
             msg->pose.orientation.w;
 
-    arm_desired_twist << msg->twist.linear.x,
+    arm_desired_velocity_twist << msg->twist.linear.x,
             msg->twist.linear.y,
             msg->twist.linear.z,
             msg->twist.angular.x,
@@ -416,7 +452,7 @@ void Admittance::state_wrench_callback(
   Vector6d wrench_ft_frame;
   Matrix6d rotation_ft_base;
   if (ft_arm_ready_) {
-    wrench_ft_frame <<  msg->wrench.force.x,msg->wrench.force.y,msg->wrench.force.z,msg->wrench.torque.x,
+    wrench_ft_frame << msg->wrench.force.x, msg->wrench.force.y,msg->wrench.force.z,msg->wrench.torque.x,
     msg->wrench.torque.y,msg->wrench.torque.z;
 //      wrench_ft_frame <<  0,0,msg->wrench.force.z,0,0,0;
 
@@ -460,7 +496,8 @@ void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConst
     if (ft_arm_ready_) {
         //this force is wrt end_link
     main_force_control_axis << 0,0,1,0,0,0;
-    wrench_desired_ <<  0,0,msg->wrench.force.z,0,0,0;
+    wrench_desired_ <<  msg->wrench.force.x, msg->wrench.force.y, msg->wrench.force.z, msg->wrench.torque.x,
+                        msg->wrench.torque.y,msg->wrench.torque.z;
     Matrix6d rotation_ft_base;
     get_rotation_matrix(rotation_ft_base, listener_ft_, end_link_, base_link_);
     //convert this force into base_link
@@ -470,33 +507,46 @@ void Admittance::desired_wrench_callback(const geometry_msgs::WrenchStampedConst
 }
 
 //!-               COMMANDING THE ROBOT                  -!//
-
-void Admittance::send_commands_to_robot() {
-  // double norm_vel_des = (arm_desired_twist_adm_.segment(0, 3)).norm();
+void Admittance::send_commands_to_robot(const Vector6d & cmd) {
+  // double norm_vel_des = (arm_desired_velocity_twist_adm_.segment(0, 3)).norm();
 
   // if (norm_vel_des > arm_max_vel_) {
   //   ROS_WARN_STREAM_THROTTLE(1, "Admittance generate fast arm movements! velocity norm: " << norm_vel_des);
 
-  //   arm_desired_twist_adm_.segment(0, 3) *= (arm_max_vel_ / norm_vel_des);
+  //   arm_desired_velocity_twist_adm_.segment(0, 3) *= (arm_max_vel_ / norm_vel_des);
 
   // }
-  geometry_msgs::Twist arm_twist_cmd;
-//  arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0)*0.3;
-//  arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1)*0.3;
-//  arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2)*0.3;
-//  arm_twist_cmd.angular.x = arm_desired_twist_adm_(3)*0.3;
-//  arm_twist_cmd.angular.y = arm_desired_twist_adm_(4)*0.3;
-//  arm_twist_cmd.angular.z = arm_desired_twist_adm_(5)*0.3;
+    geometry_msgs::Twist arm_twist_cmd;
+    arm_twist_cmd.linear.x  = cmd(0);
+    arm_twist_cmd.linear.y  = cmd(1);
+    arm_twist_cmd.linear.z  = cmd(2);
+    arm_twist_cmd.angular.x = cmd(3);
+    arm_twist_cmd.angular.y = cmd(4);
+    arm_twist_cmd.angular.z = cmd(5);
+    pub_arm_twist_cmd_.publish(arm_twist_cmd);
 
-   arm_twist_cmd.linear.x  = arm_desired_twist_adm_(0);
-   arm_twist_cmd.linear.y  = arm_desired_twist_adm_(1);
-   arm_twist_cmd.linear.z  = arm_desired_twist_adm_(2);
-   arm_twist_cmd.angular.x = arm_desired_twist_adm_(3);
-   arm_twist_cmd.angular.y = arm_desired_twist_adm_(4);
-   arm_twist_cmd.angular.z = arm_desired_twist_adm_(5);
-  pub_arm_cmd_.publish(arm_twist_cmd);
 }
 
+void Admittance::send_commands_to_robot(const Vector7d & cmd) {
+    // double norm_vel_des = (arm_desired_velocity_twist_adm_.segment(0, 3)).norm();
+
+    // if (norm_vel_des > arm_max_vel_) {
+    //   ROS_WARN_STREAM_THROTTLE(1, "Admittance generate fast arm movements! velocity norm: " << norm_vel_des);
+
+    //   arm_desired_velocity_twist_adm_.segment(0, 3) *= (arm_max_vel_ / norm_vel_des);
+
+    // }
+    geometry_msgs::Pose arm_pose_cmd;
+    arm_pose_cmd.position.x  = cmd(0);
+    arm_pose_cmd.position.y  = cmd(1);
+    arm_pose_cmd.position.z  = cmd(2);
+    arm_pose_cmd.orientation.x = cmd(3);
+    arm_pose_cmd.orientation.y = cmd(4);
+    arm_pose_cmd.orientation.z = cmd(5);
+    arm_pose_cmd.orientation.w = cmd(6);
+    pub_arm_pose_cmd_.publish(arm_pose_cmd);
+
+}
 //!-                    UTILIZATION                      -!//
 
 bool Admittance::get_rotation_matrix(Matrix6d & rotation_matrix,
