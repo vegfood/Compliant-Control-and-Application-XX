@@ -207,21 +207,24 @@ Vector7d Admittance::compute_admittance() {
   Matrix6d rot_ft_base;
   get_rotation_matrix(rot_ft_base, listener_ft_, end_link_, base_link_);
   Vector6d F_base = rot_ft_base * (-wrench_external_ - wrench_desired_);
-  ROS_WARN_STREAM_THROTTLE(1, "Total force detected in base_frame!"
-            << " norm: " << F_base);
+  ROS_WARN_STREAM_THROTTLE(1, "Total force detected in base_frame:" << F_base);
 //  Vector6d dot_error = arm_desired_velocity_twist - arm_desired_velocity_twist_adm_; //v_d - v_c
   // a_d - a_c, ddot_delta_x_n
-  Vector6d  delta_acc_twist_ = M_base.inverse() * (F_base - D_base*dot_delta_x_pre - K_base*delta_x_pre);
 
-  //判断线性角速度是否超过阈值
+  Vector6d  F_calc = (F_base - D_base*dot_delta_x_pre - K_base*delta_x_pre);
+  ROS_WARN_STREAM_THROTTLE(1, "Total force calculated in base_frame:" << F_calc);
+  Vector6d  delta_acc_twist_ = M_base.inverse() * (F_base - D_base*dot_delta_x_pre - K_base*delta_x_pre);
+  ROS_WARN_STREAM_THROTTLE(1, "delta_acc_twist_ calculated in base_frame:" << delta_acc_twist_);
+
+  //判断线角速度是否超过阈值
   double a_acc_norm = (delta_acc_twist_.segment(0, 3)).norm();
   if (a_acc_norm > arm_max_acc_) {
-    ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm acceleration!"
+    ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm linear acceleration!"
                              << " norm: " << a_acc_norm);
       delta_acc_twist_.segment(0, 3) *= (arm_max_acc_ / a_acc_norm);
   }
   else {
-      ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm accelaration!"
+      ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm linear acceleration!"
               << " norm: " << a_acc_norm);
   }
 
@@ -232,16 +235,22 @@ Vector7d Admittance::compute_admittance() {
   //delta_x_n = delta_x_n-1 + dot_delta_x_n * delta_t
   delta_x_pre.topRows(3) += dot_delta_x_pre.topRows(3) * duration.toSec();
   //计算姿态误差
-  Vector3d theta = delta_x_pre.bottomRows(3) * duration.toSec();
+  Vector3d theta = dot_delta_x_pre.bottomRows(3) * duration.toSec();
   double angle = theta.norm();
-  if (angle > 1e-3){
+  ROS_WARN_STREAM_THROTTLE(1, "Admittance generates delta angle:" << angle);
+  if (angle > 1e-10){
       AngleAxisd delta_rot(angle, theta.normalized());
-      AngleAxisd rot(delta_x_pre.bottomRows(3).norm(), delta_x_pre.bottomRows(3).normalized());
+      Quaterniond q = Eigen::Quaterniond::Identity();
+      if (delta_x_pre.bottomRows(3).norm() > 1e-10){
+          AngleAxisd rot(delta_x_pre.bottomRows(3).norm(), delta_x_pre.bottomRows(3).normalized());
+          Quaterniond q_rot(rot);
+          q = q * q_rot;
+      }
       Quaterniond dq(delta_rot);
-      Quaterniond q(rot);
       q = dq * q; //角速度描述在基坐标系下，左乘
       q.normalize();
       Eigen::AngleAxisd orient_error(q);
+      ROS_WARN_STREAM_THROTTLE(1, "Admittance generates delta orient_error angle:" << orient_error.angle());
       delta_x_pre.bottomRows(3) = orient_error.angle() * orient_error.axis();
   }
 
@@ -251,17 +260,21 @@ Vector7d Admittance::compute_admittance() {
   desired_pose_position_adm_ = desired_pose_position_ - delta_x_pre.topRows(3);
 
   //更新期望姿态
-  Vector3d theta_n = delta_x_pre.bottomRows(3) * duration.toSec();
+  ROS_WARN_STREAM_THROTTLE(1, "desired_pose_orientation_ :" << desired_pose_orientation_.coeffs());
+  Vector3d theta_n = delta_x_pre.bottomRows(3);
   double angle_n = theta_n.norm();
-  if (angle_n > 1e-3){
+  if (angle_n > 1e-10){
       AngleAxisd delta_rot_n(angle_n, theta_n.normalized());
       Quaterniond dq(delta_rot_n);
+      ROS_WARN_STREAM_THROTTLE(1, "delta dq:" << dq.coeffs());
+      ROS_WARN_STREAM_THROTTLE(1, "delta_rot_n angle:" << delta_rot_n.angle());
       desired_pose_orientation_adm_ = dq.inverse() * desired_pose_orientation_; //角速度描述在基坐标系下，左乘
       desired_pose_orientation_adm_.normalize();
   }
   else{
       desired_pose_orientation_adm_ = desired_pose_orientation_;
   }
+  ROS_WARN_STREAM_THROTTLE(1, "desired_pose_orientation_adm_ :" << desired_pose_orientation_adm_.coeffs());
 
   //更新位姿命令
   desired_pose_adm_.topRows(3) = desired_pose_position_adm_;
