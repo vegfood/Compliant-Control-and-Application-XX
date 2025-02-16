@@ -48,7 +48,7 @@ protected:
   ros::Subscriber sub_arm_state_;
   ros::Subscriber sub_wrench_state_;
   // Publishers:
-  ros::Publisher  pub_arm_twist_cmd_;
+  ros::Publisher  pub_arm_cmd_;
   ros::Publisher  pub_car_cmd_;
 
   // Variables:
@@ -71,7 +71,7 @@ protected:
   // Transform from base_link to world
   Matrix6d rotation_base_;
   // Listeners
-  tf::TransformListener listener_ft_;
+  tf::TransformListener tf_listener_;
   tf::TransformListener listener_control_;
   tf::TransformListener listener_arm_;
 
@@ -103,7 +103,7 @@ public:
   void run();
 private:
 
-  void compute_admittance();
+  void compute_admittance_position_interface();
 
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
 

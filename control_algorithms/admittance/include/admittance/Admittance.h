@@ -39,7 +39,6 @@ using namespace Eigen;
 typedef Matrix<double, 7, 1> Vector7d;
 typedef Matrix<double, 6, 1> Vector6d;
 typedef Matrix<double, 6, 6> Matrix6d;
-#define PI 3.1415926
 
 class Admittance
 {
@@ -58,8 +57,7 @@ protected:
   ros::Subscriber sub_wrench_desired_;
 
   // Publishers:
-  ros::Publisher pub_arm_twist_cmd_;
-  ros::Publisher pub_arm_pose_cmd_;
+  ros::Publisher pub_arm_cmd_;
 
   // Variables:
   //当前机械臂末端的位姿和速度
@@ -70,7 +68,7 @@ protected:
   //末端测量的外力，与交互力h_e的方向相反
   Vector6d      wrench_external_;
   //期望的外力, 默认方向与h_e方向相同
-  Vector6d      wrench_desired_;
+  Vector6d      wrench_desired_threshold_;
 
   // 导纳控制器输出：末端柔顺坐标系的速度，v_c of compliant frame
   Vector6d      arm_desired_velocity_twist_adm_;
@@ -90,48 +88,38 @@ protected:
   Vector3d      desired_pose_position_;
   Quaterniond   desired_pose_orientation_;
 
-  //柔顺坐标系的位姿x_c与期望位姿x_d的差值，error = x_d - x_c
-  //delta_x_pre，dot_delta_x_pre:上一时刻的位置误差和速度误差，用于计算当前时刻的加速度误差
+  // 柔顺坐标系的位姿x_c与期望位姿x_d的差值，error = x_d - x_c
+  // delta_x_pre，dot_delta_x_pre:上一时刻的位置误差和速度误差，用于计算当前时刻的加速度误差
   Vector6d      delta_x_pre;
   Vector6d      dot_delta_x_pre;
-  Vector6d      error;
-  Vector6d      integral_force_error;
-  Vector6d      last_force_error;
-
-  Vector6d      main_force_control_axis;
-
 
   // TF:
   // Transform from base_link to world
   Matrix6d rotation_base_;
   // Listeners
-  tf::TransformListener listener_ft_;
-  tf::TransformListener listener_control_;
-  tf::TransformListener listener_arm_;
+  tf::TransformListener tf_listener_;
 
   // Guards
   bool ft_arm_ready_;
-  bool base_world_ready_;
-  bool world_arm_ready_;
 
   double arm_max_vel_;
   double arm_max_acc_;
 
-  double force_x_pre, force_y_pre, force_z_pre;
 
 public:
   Admittance(ros::NodeHandle &n, double frequency,
-                      std::string topic_arm_state,
-                      std::string topic_arm_command,
-                      std::string topic_wrench_state,
-                      std::string topic_wrench_desired,
-                      std::string topic_desired_state,
+                      const std::string& topic_arm_state,
+                      const std::string& topic_arm_command,
+                      const std::string& topic_wrench_state,
+                      const std::string& topic_wrench_desired,
+                      const std::string& topic_desired_state,
                       std::vector<double> M,
                       std::vector<double> D,
                       std::vector<double> K,
                       std::vector<double> desired_pose,
                       std::string base_link,
-                      std::string end_link,
+                      const std::string& end_link,
+                      std::string interface_type,
                       double arm_max_vel,
                       double arm_max_acc
                        );
@@ -139,14 +127,13 @@ public:
   void run();
 private:
   // Control
-  Vector7d compute_admittance();
-  void compute_admittance_velocity_interface();
-  void compute_hybrid_control();
+  Vector7d compute_admittance_position_interface();
+  Vector6d compute_admittance_velocity_interface();
   // Callbacks
-  void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
-  void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg);
-  void desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr msg);
-  void state_desired_callback(const cartesian_state_msgs::PoseTwistConstPtr msg);
+  void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
+  void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr& msg);
+  void desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr& msg);
+  void state_desired_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
 
   //
   void send_commands_to_robot(const Vector6d & cmd);
@@ -154,13 +141,17 @@ private:
 
   // 
   void wait_for_transformations();
-  bool get_rotation_matrix(Matrix6d & rotation_matrix,
+  static bool get_rotation_matrix(Matrix6d & rotation_matrix,
                            tf::TransformListener & listener,
-                           std::string from_frame,  std::string to_frame);
+                           const std::string& from_frame,  const std::string& to_frame);
 private:
   std::string   base_link_;
   std::string   end_link_;
   std::string   control_frame_;
+
+  // Controller interface type
+  std::string interface_type_;
+
 };
 
 #endif // ADMITTANCE_H
