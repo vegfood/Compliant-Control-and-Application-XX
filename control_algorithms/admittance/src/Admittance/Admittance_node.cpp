@@ -24,6 +24,7 @@ int main(int argc, char **argv)
 
     std::string base_link;
     std::string end_link;
+    std::string interface_type;
 
     std::vector<double> M;
     std::vector<double> D;
@@ -48,7 +49,9 @@ int main(int argc, char **argv)
     if (!nh.getParam("damping_arm", D)) { ROS_ERROR("Couldn't retrieve the desired damping of the coupling."); return -1; }
     if (!nh.getParam("stiffness_coupling", K)) { ROS_ERROR("Couldn't retrieve the desired stiffness of the coupling."); return -1; }
     if (!nh.getParam("base_link", base_link)) { ROS_ERROR("Couldn't retrieve the base_link."); return -1; }
-    if (!nh.getParam("end_link", end_link)) { ROS_ERROR("Couldn't retrieve the end_link."); return -1; } 
+    if (!nh.getParam("end_link", end_link)) { ROS_ERROR("Couldn't retrieve the end_link."); return -1; }
+    if (!nh.getParam("interface_type", interface_type)) { ROS_ERROR("Couldn't retrieve the interface_type."); return -1; }
+
     if (!nh.getParam("desired_pose", desired_pose)) { ROS_ERROR("Couldn't retrieve the desired pose of the spring."); return -1; }
     if (!nh.getParam("arm_max_vel", arm_max_vel)) { ROS_ERROR("Couldn't retrieve the max velocity for the arm."); return -1;}
     if (!nh.getParam("arm_max_acc", arm_max_acc)) { ROS_ERROR("Couldn't retrieve the max acceleration for the arm."); return -1;}
@@ -64,6 +67,7 @@ int main(int argc, char **argv)
         M, D, K, desired_pose,
         base_link,
         end_link,
+        interface_type,
         arm_max_vel,
         arm_max_acc);
 

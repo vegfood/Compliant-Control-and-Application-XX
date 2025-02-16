@@ -3,16 +3,19 @@
   <!--
       Launch file for the admittance controller
   -->
-<!--  速度接口-->
-<!--  <arg name="TOPIC_ARM_STATE" default="/cartesian_velocity_controller/ee_state"/>-->
-<!--  <arg name="TOPIC_ARM_COMMAND" default="/cartesian_velocity_controller/command_cart_vel"/>-->
-<!--  <arg name="TOPIC_DESIRED_STATE" default="/cartesian_velocity_controller/desired_state"/>-->
-<!--  -->
-<!--  位置接口-->
-  <arg name="TOPIC_ARM_STATE" default="/cartesian_position_controller/ee_state"/>
-  <arg name="TOPIC_ARM_COMMAND" default="/cartesian_position_controller/command_cart_pos"/>
-  <arg name="TOPIC_DESIRED_STATE" default="/cartesian_position_controller/desired_state"/>
+<!--  接口类型-->
+  <arg name="INTERFACE_TYPE" default="position" doc="内环所使用的控制器类型，position controller 或者 velocity controller"/>
+  <!--  位置接口-->
+  <arg if="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_ARM_STATE" value="/cartesian_position_controller/ee_state" />
+  <arg if="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_ARM_COMMAND" value="/cartesian_position_controller/command_cart_pos" />
+  <arg if="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_DESIRED_STATE" value="/cartesian_position_controller/desired_state" />
 
+  <!--  速度接口-->
+  <arg unless="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_ARM_STATE" value="/cartesian_velocity_controller/ee_state" />
+  <arg unless="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_ARM_COMMAND" value="/cartesian_velocity_controller/command_cart_vel" />
+  <arg unless="$(eval arg('INTERFACE_TYPE') == 'position')" name="TOPIC_DESIRED_STATE" value="/cartesian_velocity_controller/desired_state" />
+
+<!--  力矩话题-->
   <arg name="TOPIC_WRENCH_STATE" default="/wrench_fake"/>
   <arg name="TOPIC_WRENCH_DESIRED" default="/wrench_desired"/>
 <!--  <arg name="TOPIC_WRENCH_STATE" default="/wrench"/>-->
@@ -24,6 +27,7 @@
   <param name="topic_wrench_state" value="$(arg TOPIC_WRENCH_STATE)"/>
   <param name="topic_wrench_desired" value="$(arg TOPIC_WRENCH_DESIRED)"/>
   <param name="topic_desired_state" value="$(arg TOPIC_DESIRED_STATE)"/>
+  <param name="interface_type" value="$(arg INTERFACE_TYPE)"/>
 
 
 

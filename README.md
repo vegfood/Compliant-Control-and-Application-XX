@@ -39,7 +39,7 @@ roslaunch ur_gazebo ur5e_bringup.launch transmission_hw_interface:=hardware_inte
 ```
 
 ```bash
-roslaunch admittance Admittance.launch
+roslaunch admittance Admittance.launch INTERFACE_TYPE:=velocity
 ```
 
 After the robot has moved to the desired pose, run the following commands to generate fake wrench signal

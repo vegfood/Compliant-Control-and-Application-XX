@@ -28,7 +28,7 @@ Admittance::Admittance(ros::NodeHandle &n,
       &Admittance::state_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
 
   //* Publishers
-  pub_arm_twist_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
+  pub_arm_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
   pub_car_cmd_              = nh_.advertise<geometry_msgs::Twist>(topic_car_command, 5);
 
   // initializing the class variables
@@ -81,7 +81,7 @@ void Admittance::run() {
 
   while (nh_.ok()) {
 
-    compute_admittance();
+      compute_admittance_position_interface();
 
     send_commands_to_robot();
 
@@ -94,7 +94,7 @@ void Admittance::run() {
 
 //!-                Admittance Dynamics                  -!//
 
-void Admittance::compute_admittance() {
+void Admittance::compute_admittance_position_interface() {
 
   error.topRows(3) = arm_position_ - desired_pose_position_;
   if(desired_pose_orientation_.coeffs().dot(arm_orientation_.coeffs()) < 0.0)
@@ -167,7 +167,7 @@ void Admittance::state_wrench_callback(
     // wrench_ft_frame <<  0.0,0.0,msg->wrench.force.z,0,0,0;
     wrench_ft_frame <<  msg.force.x,msg.force.y,msg.force.z,msg.torque.x,msg.torque.y,msg.torque.z;
 
-    get_rotation_matrix(rotation_ft_base, listener_ft_, base_link_, end_link_);
+    get_rotation_matrix(rotation_ft_base, tf_listener_, base_link_, end_link_);
     wrench_external_ <<  rotation_ft_base * wrench_ft_frame;
   }
 }
@@ -183,7 +183,7 @@ void Admittance::send_commands_to_robot() {
   arm_twist_cmd.angular.x = arm_desired_velocity_twist_adm_(3);
   arm_twist_cmd.angular.y = arm_desired_velocity_twist_adm_(4);
   arm_twist_cmd.angular.z = arm_desired_velocity_twist_adm_(5);
-  pub_arm_twist_cmd_.publish(arm_twist_cmd);
+  pub_arm_cmd_.publish(arm_twist_cmd);
 }
 
 void Admittance::send_commands_to_car() {
