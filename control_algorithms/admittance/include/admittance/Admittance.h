@@ -129,6 +129,7 @@ private:
   // Control
   Vector7d compute_admittance_position_interface();
   Vector6d compute_admittance_velocity_interface();
+  Vector7d compute_admittance_simplified_position_interface();
   // Callbacks
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
   void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr& msg);

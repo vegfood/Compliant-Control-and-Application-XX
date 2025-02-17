@@ -96,7 +96,8 @@ void Admittance::run() {
 
     }
     else{
-        Vector7d cmd = compute_admittance_position_interface();
+//        Vector7d cmd = compute_admittance_position_interface();
+        Vector7d cmd = compute_admittance_simplified_position_interface();
         send_commands_to_robot(cmd);
     }
 
@@ -252,6 +253,107 @@ Vector7d Admittance::compute_admittance_position_interface() {
   desired_pose_adm_.bottomRows(4) = desired_pose_orientation_adm_.coeffs();
 
   return desired_pose_adm_;
+
+}
+
+Vector7d Admittance::compute_admittance_simplified_position_interface() {
+    //基于内环为位置接口的导纳控制器：K_d(v_d - v_c) + K_p(x_d - x_c) = h_e
+    //M，D，K矩阵默认为定义在控制坐标系下的对角矩阵
+    //为了简化处理，选择末端坐标系作为控制坐标系,即control frame 等于 end_frame
+
+    // D_base = rot_control_base * D * rot_control_base.transpose()
+    // K_base = rot_control_base * K * rot_control_base.transpose()
+    Eigen::Matrix<double, 6, 6> D_base = Eigen::Matrix<double, 6, 6>::Zero();
+    Eigen::Matrix<double, 6, 6> K_base = Eigen::Matrix<double, 6, 6>::Zero();
+
+    //求解控制坐标系在基坐标系下的旋转矩阵
+    Matrix6d rot_control_base;
+    get_rotation_matrix(rot_control_base, tf_listener_, control_frame_, base_link_);
+    //求解基坐标系下的各项矩阵
+    D_base = rot_control_base * D_ * rot_control_base.transpose();
+    K_base = rot_control_base * K_ * rot_control_base.transpose();
+
+    //求解基坐标系下的交互力, 交互力与测量受到的外力方向相反, 希望的交互力默认在末端坐标系下表示，故两者之差表示合交互力
+    Matrix6d rot_ft_base;
+    get_rotation_matrix(rot_ft_base, tf_listener_, end_link_, base_link_);
+    Vector6d F_base = rot_ft_base * (-wrench_external_ - wrench_desired_threshold_);
+    ROS_WARN_STREAM_THROTTLE(1, "Total force detected in base_frame:" << F_base);
+
+    if (D_base.isZero()){
+        //K_D=0， compliance control
+        //求解delta_x = x_d - x_c = 1/K_p * h_e
+        delta_x_pre = K_base.inverse()*F_base;
+    }
+    else{
+        //求解速度误差 delta_vel_twist = K_d.inverse()*(- K_p(x_d - x_e) + h_e)
+        Vector6d delta_vel_twist = D_base.inverse() * (- K_base * delta_x_pre + F_base);
+        ROS_WARN_STREAM_THROTTLE(1, "delta_vel_twist calculated in base_frame:" << delta_vel_twist);
+
+        //判断线速度是否超过阈值
+        double a_vel_norm = (delta_vel_twist.segment(0, 3)).norm();
+        if (a_vel_norm > arm_max_vel_) {
+            ROS_WARN_STREAM_THROTTLE(1, "Admittance generates high arm linear velocity!"
+                    << " norm: " << a_vel_norm);
+            delta_vel_twist.segment(0, 3) *= (arm_max_vel_ / a_vel_norm);
+        }
+        else {
+            ROS_WARN_STREAM_THROTTLE(1, "Admittance generates [normal] arm linear velocity!"
+                    << " norm: " << a_vel_norm);
+        }
+
+        // Integrate for velocity based interface
+        ros::Duration duration = loop_rate_.expectedCycleTime();
+        //delta_x_n = delta_x_n-1 + dot_delta_x_n * delta_t
+        delta_x_pre.topRows(3) += delta_vel_twist.topRows(3) * duration.toSec();
+        //计算姿态误差
+        Vector3d theta = delta_vel_twist.bottomRows(3) * duration.toSec();
+        double angle = theta.norm();
+        ROS_WARN_STREAM_THROTTLE(1, "Admittance generates delta angle:" << angle);
+        if (angle > 1e-10){
+            AngleAxisd delta_rot(angle, theta.normalized());
+            Quaterniond q = Eigen::Quaterniond::Identity();
+            if (delta_x_pre.bottomRows(3).norm() > 1e-10){
+                AngleAxisd rot(delta_x_pre.bottomRows(3).norm(), delta_x_pre.bottomRows(3).normalized());
+                Quaterniond q_rot(rot);
+                q = q * q_rot;
+            }
+            Quaterniond dq(delta_rot);
+            q = dq * q; //角速度描述在基坐标系下，左乘
+            q.normalize();
+            Eigen::AngleAxisd orient_error(q);
+            ROS_WARN_STREAM_THROTTLE(1, "Admittance generates delta orient_error angle:" << orient_error.angle());
+            delta_x_pre.bottomRows(3) = orient_error.angle() * orient_error.axis();
+        }
+
+        //更新参考速度
+        arm_desired_velocity_twist_adm_ = arm_desired_velocity_twist - delta_vel_twist;
+    }
+
+    //更新位置
+    desired_pose_position_adm_ = desired_pose_position_ - delta_x_pre.topRows(3);
+
+    //更新期望姿态
+    ROS_WARN_STREAM_THROTTLE(1, "desired_pose_orientation_ :" << desired_pose_orientation_.coeffs());
+    Vector3d theta_n = delta_x_pre.bottomRows(3);
+    double angle_n = theta_n.norm();
+    if (angle_n > 1e-10){
+        AngleAxisd delta_rot_n(angle_n, theta_n.normalized());
+        Quaterniond dq(delta_rot_n);
+        ROS_WARN_STREAM_THROTTLE(1, "delta dq:" << dq.coeffs());
+        ROS_WARN_STREAM_THROTTLE(1, "delta_rot_n angle:" << delta_rot_n.angle());
+        desired_pose_orientation_adm_ = dq.inverse() * desired_pose_orientation_; //角速度描述在基坐标系下，左乘
+        desired_pose_orientation_adm_.normalize();
+    }
+    else{
+        desired_pose_orientation_adm_ = desired_pose_orientation_;
+    }
+    ROS_WARN_STREAM_THROTTLE(1, "desired_pose_orientation_adm_ :" << desired_pose_orientation_adm_.coeffs());
+
+    //更新位姿命令
+    desired_pose_adm_.topRows(3) = desired_pose_position_adm_;
+    desired_pose_adm_.bottomRows(4) = desired_pose_orientation_adm_.coeffs();
+
+    return desired_pose_adm_;
 
 }
 
