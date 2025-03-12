@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(hybrid_position_force_control)
+project(hybrid_force_control)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -108,7 +108,7 @@ set(CMAKE_CXX_FLAGS "-O2 -O3 -std=c++11 -Wall")
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
  INCLUDE_DIRS include
- LIBRARIES hybrid_position_force_control
+ LIBRARIES hybrid_force_control
  CATKIN_DEPENDS cartesian_state_msgs roscpp sensor_msgs tf tf_conversions trajectory_msgs
 #  DEPENDS system_lib
 )
@@ -126,8 +126,8 @@ include_directories(
 include_directories(${EIGEN3_INCLUDE_DIR})
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
-  include/${PROJECT_NAME}/hybrid_position_force_control.h
-  src/hybrid_position_force_control.cpp
+  include/${PROJECT_NAME}/HybridForce.h
+  src/HybridForce.cpp
 )
 target_link_libraries(  ${PROJECT_NAME}
   ${catkin_LIBRARIES}
@@ -141,7 +141,7 @@ target_link_libraries(  ${PROJECT_NAME}
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME}_node src/hybrid_position_force_control_node.cpp)
+add_executable(${PROJECT_NAME}_node src/HybridForce_node.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use

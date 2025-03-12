@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>hybrid_position_force_control</name>
+  <name>hybrid_force_control</name>
   <version>0.0.0</version>
-  <description>The hybrid_position_force_control package</description>
+  <description>The hybrid_force_control package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->

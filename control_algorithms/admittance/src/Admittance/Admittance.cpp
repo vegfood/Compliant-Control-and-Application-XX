@@ -31,7 +31,7 @@ Admittance::Admittance(ros::NodeHandle &n,
   sub_wrench_desired_        = nh_.subscribe(topic_wrench_desired, 5,
                                              &Admittance::desired_wrench_callback, this, ros::TransportHints().reliable().tcpNoDelay());
   sub_desired_state_        = nh_.subscribe(topic_desired_state, 5,
-                                             &Admittance::state_desired_callback, this,ros::TransportHints().reliable().tcpNoDelay());
+                                            &Admittance::desired_state_callback, this, ros::TransportHints().reliable().tcpNoDelay());
   //* Publishers
   if (interface_type_ == "velocity"){
       pub_arm_cmd_ = nh_.advertise<geometry_msgs::Twist>(topic_arm_command, 5);
@@ -378,7 +378,7 @@ void Admittance::state_arm_callback(
                 msg->twist.angular.z;
 }
 
-void Admittance::state_desired_callback(
+void Admittance::desired_state_callback(
         const cartesian_state_msgs::PoseTwistConstPtr& msg) {
     desired_pose_position_ <<  msg->pose.position.x,
             msg->pose.position.y,

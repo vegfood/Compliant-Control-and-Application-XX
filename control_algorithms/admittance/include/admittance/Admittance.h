@@ -134,7 +134,7 @@ private:
   void state_arm_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
   void state_wrench_callback(const geometry_msgs::WrenchStampedConstPtr& msg);
   void desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr& msg);
-  void state_desired_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
+  void desired_state_callback(const cartesian_state_msgs::PoseTwistConstPtr& msg);
 
   //
   void send_commands_to_robot(const Vector6d & cmd);
