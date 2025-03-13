@@ -1,5 +1,5 @@
 #include "ros/ros.h"
-#include "hybridforce/HybridForce.h"
+#include "hybrid_force_control//HybridForce.h"
 
 int main(int argc, char **argv)
 {
