@@ -47,12 +47,21 @@ protected:
 
     // CONTROLLER PARAMETERS:
     Matrix6d K_i_v_, K_i_lambda_, K_p_lambda_;
+    //任务坐标系相对于基坐标系的刚体变换矩阵
+    Isometry3d  T_task_base;
+    //构造任务坐标系到基坐标系的6x6变换矩阵
+    Matrix6d trans_task_base;
     //力的维度和速度的维度对应的选择矩阵
     Eigen::MatrixXd S_v_, S_f_;
     Eigen::MatrixXd S_v_inv_, S_f_inv_;
     //力选择矩阵的伪逆对应的权重，W_f=K^-1;速度选择矩阵的伪逆对应的权重，W_v=M;
     Matrix6d W_f_;
     Matrix6d W_v_;
+    //环境刚度K_env_
+    Matrix6d K_env_;
+    //柔顺矩阵C_prime
+    Matrix6d C_prime_;
+
 
     // Subscribers:
     ros::Subscriber sub_arm_state_;
@@ -72,18 +81,18 @@ protected:
 
     //末端测量的外力，与交互力h_e的方向相反,
     Vector6d wrench_external_;
-    //控制器输入： 期望的外力, 默认方向与h_e方向相同,
+    //控制器输入： 期望的外力, 默认表达在任务坐标系
     Vector6d wrench_desired_threshold_;
     //todo:添加期望力的导数，实现非恒力的跟踪
 
-    // 控制器输入：末端坐标系期望速度，v_d of desired frame
+    // 控制器输入：末端坐标系期望速度，v_d of desired frame， 默认表达在任务坐标系
     Vector6d arm_desired_velocity_twist;
 
     // 期望速度和实际速度的积分累积误差
-    Vector6d v_error_integral;
+    VectorXd v_error_integral;
 
     // 期望力和实际力的积分累积误差
-    Vector6d force_error_integral;
+    VectorXd force_error_integral;
 
     // TF:
     // Transform from base_link to world
@@ -111,6 +120,7 @@ public:
                 std::vector<double> S_f,
                 std::vector<double> W_v,
                 std::vector<double> W_f,
+                std::vector<double> K_env,
                 std::string base_link,
                 const std::string &end_link,
                 std::string interface_type,
@@ -150,7 +160,7 @@ private:
 private:
     std::string base_link_;
     std::string end_link_;
-    std::string control_frame_;
+    std::string ft_frame_;
 
     // Controller interface type
     std::string interface_type_;

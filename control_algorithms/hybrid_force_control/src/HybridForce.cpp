@@ -15,6 +15,7 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
                          std::vector<double> S_f,
                          std::vector<double> W_v,
                          std::vector<double> W_f,
+                         std::vector<double> K_env,
                          std::string base_link,
                          const std::string &end_link,
                          std::string interface_type,
@@ -22,13 +23,25 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
                          double arm_max_acc) :
         nh_(n), loop_rate_(frequency),
         K_i_v_(K_i_v.data()), K_i_lambda_(K_i_lambda.data()), K_p_lambda_(K_p_lambda.data()),
-        W_f_(W_f.data()), W_v_(W_v.data()),
+        W_f_(W_f.data()), W_v_(W_v.data()), K_env_(K_env.data()),
         arm_max_vel_(arm_max_vel), arm_max_acc_(arm_max_acc),
-        base_link_(std::move(base_link)), end_link_(end_link), control_frame_(end_link),
+        base_link_(std::move(base_link)), end_link_(end_link), ft_frame_(end_link),
         interface_type_(std::move(interface_type)) {
+    //初始化任务坐标系变换
+    T_task_base = Isometry3d::Identity();
+    trans_task_base = Matrix6d::Zero();
+    // 将 R 放在对角线上
+    trans_task_base.topLeftCorner(3, 3) = T_task_base.linear();
+    trans_task_base.bottomRightCorner(3, 3) = T_task_base.linear();
+
     //初始化选择矩阵
     init_selection_matrix(S_v_, S_v);
     init_selection_matrix(S_f_, S_f);
+    S_v_inv_ = (S_v_.transpose() * W_v_ * S_v_).inverse() * S_v_.transpose() * W_v_;
+    S_f_inv_ = (S_f_.transpose() * W_f_ * S_f_).inverse() * S_f_.transpose() * W_f_;
+
+    //初始化柔顺矩阵
+    C_prime_ = K_env_.inverse() - S_v_ * S_v_inv_ * K_env_.inverse();
 
     //* Subscribers
     sub_arm_state_ = nh_.subscribe(topic_arm_state, 5,
@@ -127,12 +140,29 @@ void HybridForce::run() {
 
 //!-                基于速度接口的混合力控实现                  -!//
 Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
-    //基于内环为速度的导纳控制器：K_d(v_d - v_e) + K_p(x_d - x_e) = h_e, v_r(v_e) = v_d + K_d.inverse()*(K_p(x_d - x_e) - h_e)
-    //D，K矩阵默认为定义在控制坐标系下的对角矩阵
+    //基于内环为速度的力位混合控制器：V_r = S_v * V_v + C' * S_f * f_lambda
     //为了简化处理，选择末端坐标系作为控制坐标系,即control frame 等于 end_frame
     //todo:实现基于速度内环的力位混合控制
-
-
+    // V_v = V_d + K_iv * Integral(V_d - V_c)
+    // 求解基坐标系在任务坐标系下的旋转矩阵
+    // 统一变换到任务坐标系
+    auto V_c = S_v_inv_ * trans_task_base.inverse() * arm_twist_;
+    auto V_d = S_v_inv_ * arm_desired_velocity_twist;
+    v_error_integral += V_d - V_c;
+    auto V_v = V_d + K_i_v_ * v_error_integral;
+    //f_lambda = dot_lamdda_d(恒力为零) + K_p_lambda * [lambda_d - lambda_c] + K_i_lamda * Integral(lambda_d - lambda_c)
+    // 获取末端力矩传感器到基座的变换，再变换到任务坐标系
+    Matrix6d rot_ft_base;
+    get_rotation_matrix(rot_ft_base, tf_listener_, ft_frame_, base_link_);
+    Matrix6d rot_ft_task = trans_task_base.inverse() * rot_ft_base;
+    auto lambda_c = S_f_inv_ * rot_ft_task * (- wrench_external_);
+    auto lambda_d = S_f_inv_ * wrench_desired_threshold_;
+    force_error_integral += lambda_d - lambda_c;
+    auto f_lambda = K_p_lambda_ * (lambda_d - lambda_c) + K_i_lambda_ * (lambda_d - lambda_c);
+    auto V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
+    // 再变换为基坐标系下的速度
+    auto V_cmd = trans_task_base * V_r;
+    return V_cmd;
 }
 
 
@@ -181,7 +211,7 @@ void HybridForce::state_wrench_callback(
 
 void HybridForce::desired_wrench_callback(const geometry_msgs::WrenchStampedConstPtr &msg) {
     if (ft_arm_ready_) {
-        //this force is wrt ft sensor link
+        //this force is wrt task frame
         wrench_desired_threshold_
                 << msg->wrench.force.x, msg->wrench.force.y, msg->wrench.force.z, msg->wrench.torque.x,
                 msg->wrench.torque.y, msg->wrench.torque.z;
