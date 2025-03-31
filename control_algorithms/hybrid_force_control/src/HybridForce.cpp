@@ -9,6 +9,7 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
                          const std::string &topic_wrench_desired,
                          const std::string &topic_desired_state,
                          std::vector<double> K_i_v,
+//                         std::vector<double> K_p_v,
                          std::vector<double> K_i_lambda,
                          std::vector<double> K_p_lambda,
                          std::vector<double> S_v,
@@ -22,12 +23,13 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
                          double arm_max_vel,
                          double arm_max_acc) :
         nh_(n), loop_rate_(frequency),
-        K_i_v_(K_i_v.data()), K_i_lambda_(K_i_lambda.data()), K_p_lambda_(K_p_lambda.data()),
+        K_i_v_(K_i_v.data()), K_i_lambda_(K_i_lambda.data()), //K_p_v_(K_p_v.data()),
+        K_p_lambda_(K_p_lambda.data()),
         W_f_(W_f.data()), W_v_(W_v.data()), K_env_(K_env.data()),
         arm_max_vel_(arm_max_vel), arm_max_acc_(arm_max_acc),
         base_link_(std::move(base_link)), end_link_(end_link), ft_frame_(end_link),
         interface_type_(std::move(interface_type)) {
-    //初始化任务坐标系变换
+    //初始化任务坐标系变换, 先默认任务坐标系为基座坐标系
     T_task_base = Isometry3d::Identity();
     trans_task_base = Matrix6d::Zero();
     // 将 R 放在对角线上
@@ -120,7 +122,7 @@ void HybridForce::wait_for_transformations() {
 
 void HybridForce::run() {
 
-    ROS_INFO("Running the admittance control loop .................");
+    ROS_INFO("Running the hybrid force control loop .................");
 
     while (nh_.ok()) {
         if (interface_type_ == "velocity") {
@@ -145,23 +147,36 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     //todo:实现基于速度内环的力位混合控制
     // V_v = V_d + K_iv * Integral(V_d - V_c)
     // 求解基坐标系在任务坐标系下的旋转矩阵
-    // 统一变换到任务坐标系
-    auto V_c = S_v_inv_ * trans_task_base.inverse() * arm_twist_;
-    auto V_d = S_v_inv_ * arm_desired_velocity_twist;
-    v_error_integral += V_d - V_c;
-    auto V_v = V_d + K_i_v_ * v_error_integral;
+    // 统一变换到任务坐标系, 期望的速度和力都是表示在任务坐标系
+    //假设柔顺环境，机械臂的末端速度等于控制指令，即v_real(arm_twist) = v_r(v_cmd)
+    VectorXd V_c = S_v_inv_ * trans_task_base.inverse() * arm_twist_;
+    ROS_WARN_STREAM_THROTTLE(1, "current cartesian velocity:" << V_c);
+    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
+    ROS_WARN_STREAM_THROTTLE(1, "desired cartesian velocity:" << V_d);
+    //控制周期
+    ros::Duration duration = loop_rate_.expectedCycleTime();
+    v_error_integral.resize(V_d.size());
+    ROS_WARN_STREAM_THROTTLE(1, "integral cartesian velocity error:" << v_error_integral);
+//    v_error_integral += (V_d - V_c) * duration.toSec();
+    v_error_integral += (V_d - V_c);
+
+    VectorXd V_v = V_d + K_i_v_ * v_error_integral;
     //f_lambda = dot_lamdda_d(恒力为零) + K_p_lambda * [lambda_d - lambda_c] + K_i_lamda * Integral(lambda_d - lambda_c)
     // 获取末端力矩传感器到基座的变换，再变换到任务坐标系
     Matrix6d rot_ft_base;
     get_rotation_matrix(rot_ft_base, tf_listener_, ft_frame_, base_link_);
     Matrix6d rot_ft_task = trans_task_base.inverse() * rot_ft_base;
-    auto lambda_c = S_f_inv_ * rot_ft_task * (- wrench_external_);
-    auto lambda_d = S_f_inv_ * wrench_desired_threshold_;
-    force_error_integral += lambda_d - lambda_c;
-    auto f_lambda = K_p_lambda_ * (lambda_d - lambda_c) + K_i_lambda_ * (lambda_d - lambda_c);
-    auto V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
+    VectorXd lambda_c = S_f_inv_ * rot_ft_task * (- wrench_external_);
+    //期望的lambda_d 表示为机械臂末端期望对环境施加的力
+    VectorXd lambda_d = S_f_inv_ * wrench_desired_threshold_;
+    force_error_integral.resize(lambda_d.size());
+    force_error_integral += (lambda_d - lambda_c) * duration.toSec();
+    VectorXd f_lambda = K_p_lambda_ * (lambda_d - lambda_c) + K_i_lambda_ * (lambda_d - lambda_c);
+    VectorXd V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
     // 再变换为基坐标系下的速度
-    auto V_cmd = trans_task_base * V_r;
+    Vector6d V_cmd = trans_task_base * V_r;
+    ROS_WARN_STREAM_THROTTLE(1, "HybridForce generates cartesian velocity cmd:" << V_cmd);
+    arm_twist_ = V_cmd;
     return V_cmd;
 }
 
@@ -178,13 +193,13 @@ void HybridForce::state_arm_callback(
             msg->pose.orientation.y,
             msg->pose.orientation.z,
             msg->pose.orientation.w;
-
-    arm_twist_ << msg->twist.linear.x,
-            msg->twist.linear.y,
-            msg->twist.linear.z,
-            msg->twist.angular.x,
-            msg->twist.angular.y,
-            msg->twist.angular.z;
+//
+//    arm_twist_ << msg->twist.linear.x,
+//            msg->twist.linear.y,
+//            msg->twist.linear.z,
+//            msg->twist.angular.x,
+//            msg->twist.angular.y,
+//            msg->twist.angular.z;
 }
 
 void HybridForce::desired_state_callback(

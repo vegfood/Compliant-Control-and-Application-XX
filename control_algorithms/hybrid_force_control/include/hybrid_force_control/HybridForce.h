@@ -46,7 +46,8 @@ protected:
     ros::Rate loop_rate_;
 
     // CONTROLLER PARAMETERS:
-    Matrix6d K_i_v_, K_i_lambda_, K_p_lambda_;
+    //先默认构造为3x3矩阵
+    Matrix3d K_i_v_, K_i_lambda_, K_p_lambda_;
     //任务坐标系相对于基坐标系的刚体变换矩阵
     Isometry3d  T_task_base;
     //构造任务坐标系到基坐标系的6x6变换矩阵
@@ -114,6 +115,7 @@ public:
                 const std::string &topic_wrench_desired,
                 const std::string &topic_desired_state,
                 std::vector<double> K_i_v,
+//                std::vector<double> K_p_v,
                 std::vector<double> K_i_lambda,
                 std::vector<double> K_p_lambda,
                 std::vector<double> S_v,
