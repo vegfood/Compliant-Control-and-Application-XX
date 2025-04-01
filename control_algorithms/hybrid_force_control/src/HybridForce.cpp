@@ -170,11 +170,9 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     // V_v = V_d + K_iv * Integral(V_d - V_c)
     // 求解基坐标系在任务坐标系下的旋转矩阵
     // 统一变换到任务坐标系, 期望的速度和力都是表示在任务坐标系
-    //假设柔顺环境，机械臂的末端速度等于控制指令，即v_real(arm_twist) = v_r(v_cmd)
+    //获得末端的实时速度：由于位置接口无法返回准确的速度
     VectorXd V_c = S_v_inv_ * trans_task_base.inverse() * arm_twist_;
     ROS_WARN_STREAM_THROTTLE(1, "current cartesian velocity:" << V_c);
-//    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
-    //期望速度+末端姿态跟踪
     //计算姿态误差
     Vector6d pose_error;
     pose_error.setZero();
@@ -191,7 +189,10 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     Matrix3d R_desired_base = arm_desired_orientation_.toRotationMatrix();
     Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
     pose_error.bottomRows(3) << - R_desired_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
-    VectorXd V_d = S_v_inv_ * (arm_desired_velocity_twist + pose_error);
+    //期望速度+末端姿态跟踪
+//    VectorXd V_d = S_v_inv_ * (arm_desired_velocity_twist + pose_error);
+    //期望速度
+    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
 
     ROS_WARN_STREAM_THROTTLE(1, "desired cartesian velocity:" << V_d);
     //控制周期
@@ -221,7 +222,10 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     // 再变换为基坐标系下的速度
     Vector6d V_cmd = trans_task_base * V_r;
     ROS_WARN_STREAM_THROTTLE(1, "HybridForce generates cartesian velocity cmd:" << V_cmd);
-    arm_twist_ = V_cmd;
+    // 方法一：假设柔顺环境，机械臂的末端速度等于控制指令，即v_real(arm_twist) = v_r(v_cmd)
+//    arm_twist_ = V_cmd;
+    // 方法二：根据位置微分
+
     return V_cmd;
 }
 
@@ -245,6 +249,22 @@ void HybridForce::state_arm_callback(
 //            msg->twist.angular.x,
 //            msg->twist.angular.y,
 //            msg->twist.angular.z;
+    //根据位置微分计算速度
+    if (arm_twist_flag_){
+        auto delta_t = msg->header.stamp.toSec() - last_arm_twist_time_;
+        auto delta_pos = arm_position_ - arm_last_position_;
+        auto delta_q = arm_orientation_ * arm_last_orientation_.inverse();
+        AngleAxisd delta_angle(delta_q);
+        auto trans_v = delta_pos / delta_t;
+        auto rot_v = delta_angle.angle() / delta_t * delta_angle.axis();
+        arm_twist_ << trans_v[0], trans_v[1], trans_v[2], rot_v[0], rot_v[1], rot_v[2];
+    }
+    arm_last_orientation_ = arm_orientation_;
+    arm_last_position_ = arm_position_;
+    last_arm_twist_time_ = msg->header.stamp.toSec();
+    arm_twist_flag_ = true;
+
+
 }
 
 void HybridForce::desired_state_callback(

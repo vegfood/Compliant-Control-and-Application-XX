@@ -77,6 +77,9 @@ protected:
     //当前机械臂末端的位姿和速度
     Vector3d arm_position_;
     Quaterniond arm_orientation_;
+    Vector3d arm_last_position_;
+    Quaterniond arm_last_orientation_;
+    double last_arm_twist_time_;
     //v_e
     Vector6d arm_twist_;
 
@@ -106,6 +109,7 @@ protected:
 
     // Guards
     bool ft_arm_ready_;
+    bool arm_twist_flag_;
 
     double arm_max_vel_;
     double arm_max_acc_;
