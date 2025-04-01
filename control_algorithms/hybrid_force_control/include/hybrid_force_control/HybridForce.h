@@ -47,7 +47,7 @@ protected:
 
     // CONTROLLER PARAMETERS:
     //先默认构造为3x3矩阵
-    Matrix3d K_i_v_, K_i_lambda_, K_p_lambda_;
+    MatrixXd K_i_v_, K_i_lambda_, K_p_lambda_;
     //任务坐标系相对于基坐标系的刚体变换矩阵
     Isometry3d  T_task_base;
     //构造任务坐标系到基坐标系的6x6变换矩阵
@@ -88,6 +88,9 @@ protected:
 
     // 控制器输入：末端坐标系期望速度，v_d of desired frame， 默认表达在任务坐标系
     Vector6d arm_desired_velocity_twist;
+    // 期望保持的末端姿态
+    Vector7d arm_desired_pose_;
+    Quaterniond  arm_desired_orientation_;
 
     // 期望速度和实际速度的积分累积误差
     VectorXd v_error_integral;
@@ -123,6 +126,7 @@ public:
                 std::vector<double> W_v,
                 std::vector<double> W_f,
                 std::vector<double> K_env,
+                std::vector<double> desired_pose,
                 std::string base_link,
                 const std::string &end_link,
                 std::string interface_type,
@@ -137,6 +141,8 @@ public:
 private:
     //初始化 选择矩阵
     void init_selection_matrix(MatrixXd& S, std::vector<double>& vec);
+    //初始化 P，I参数矩阵
+    void init_control_matrix(const MatrixXd& S, std::vector<double>& vec, MatrixXd& K);
     // Control
     Vector6d compute_hybrid_force_velocity_interface();
 

@@ -17,19 +17,20 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
                          std::vector<double> W_v,
                          std::vector<double> W_f,
                          std::vector<double> K_env,
+                         std::vector<double> desired_pose,
                          std::string base_link,
                          const std::string &end_link,
                          std::string interface_type,
                          double arm_max_vel,
                          double arm_max_acc) :
         nh_(n), loop_rate_(frequency),
-        K_i_v_(K_i_v.data()), K_i_lambda_(K_i_lambda.data()), //K_p_v_(K_p_v.data()),
-        K_p_lambda_(K_p_lambda.data()),
+//        K_i_v_(K_i_v.data()), K_i_lambda_(K_i_lambda.data()), //K_p_v_(K_p_v.data()),
+//        K_p_lambda_(K_p_lambda.data()),
         W_f_(W_f.data()), W_v_(W_v.data()), K_env_(K_env.data()),
+        arm_desired_pose_(desired_pose.data()),
         arm_max_vel_(arm_max_vel), arm_max_acc_(arm_max_acc),
         base_link_(std::move(base_link)), end_link_(end_link), ft_frame_(end_link),
         interface_type_(std::move(interface_type)) {
-    //初始化任务坐标系变换, 先默认任务坐标系为基座坐标系
     T_task_base = Isometry3d::Identity();
     trans_task_base = Matrix6d::Zero();
     // 将 R 放在对角线上
@@ -41,6 +42,11 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
     init_selection_matrix(S_f_, S_f);
     S_v_inv_ = (S_v_.transpose() * W_v_ * S_v_).inverse() * S_v_.transpose() * W_v_;
     S_f_inv_ = (S_f_.transpose() * W_f_ * S_f_).inverse() * S_f_.transpose() * W_f_;
+
+    //初始化P、I矩阵
+    init_control_matrix(S_v_, K_i_v, K_i_v_);
+    init_control_matrix(S_f_, K_i_lambda, K_i_lambda_);
+    init_control_matrix(S_f_, K_p_lambda, K_p_lambda_);
 
     //初始化柔顺矩阵
     C_prime_ = K_env_.inverse() - S_v_ * S_v_inv_ * K_env_.inverse();
@@ -73,6 +79,7 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
     wrench_external_.setZero();
     wrench_desired_threshold_.setZero();
     arm_desired_velocity_twist.setZero();
+    arm_desired_orientation_.coeffs() << arm_desired_pose_.bottomRows(4)/arm_desired_pose_.bottomRows(4).norm();
 
 
     while (nh_.ok() && !arm_position_(0)) {
@@ -82,7 +89,9 @@ HybridForce::HybridForce(ros::NodeHandle &n, double frequency,
     }
 
     // Init integrator
+    v_error_integral.resize(K_i_v_.cols());
     v_error_integral.setZero();
+    force_error_integral.resize(K_i_lambda_.cols());
     force_error_integral.setZero();
 
     //init ft sensor frame flag
@@ -108,6 +117,19 @@ void HybridForce::init_selection_matrix(MatrixXd &S, std::vector<double> &vec) {
 
     }
 }
+
+void HybridForce::init_control_matrix(const MatrixXd& S, std::vector<double>& vec, MatrixXd& K){
+    auto dimension = S.cols();
+    K = MatrixXd::Zero(dimension, dimension);
+    for (int i = 0; i < dimension; ++i) {
+        for (int j = 0; j < dimension; ++j) {
+            if (i * dimension + j < vec.size()) {
+                K(i, j) = vec[i * dimension + j];
+            }
+        }
+    }
+}
+
 //!-                   INITIALIZATION                    -!//
 
 void HybridForce::wait_for_transformations() {
@@ -151,14 +173,32 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     //假设柔顺环境，机械臂的末端速度等于控制指令，即v_real(arm_twist) = v_r(v_cmd)
     VectorXd V_c = S_v_inv_ * trans_task_base.inverse() * arm_twist_;
     ROS_WARN_STREAM_THROTTLE(1, "current cartesian velocity:" << V_c);
-    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
+//    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
+    //期望速度+末端姿态跟踪
+    //计算姿态误差
+    Vector6d pose_error;
+    pose_error.setZero();
+    if(arm_orientation_.coeffs().dot(arm_desired_orientation_.coeffs()) < 0.0)
+    {
+        arm_orientation_.coeffs() << -arm_orientation_.coeffs();
+    }
+    Eigen::Quaterniond quat_rot_err (arm_desired_orientation_.inverse() * arm_orientation_);
+    if(quat_rot_err.coeffs().norm() > 1e-3)
+    {
+        quat_rot_err.coeffs() << quat_rot_err.coeffs()/quat_rot_err.coeffs().norm();
+    }
+    //表示在基坐标系下的相对姿态误差
+    Matrix3d R_desired_base = arm_desired_orientation_.toRotationMatrix();
+    Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
+    pose_error.bottomRows(3) << - R_desired_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
+    VectorXd V_d = S_v_inv_ * (arm_desired_velocity_twist + pose_error);
+
     ROS_WARN_STREAM_THROTTLE(1, "desired cartesian velocity:" << V_d);
     //控制周期
     ros::Duration duration = loop_rate_.expectedCycleTime();
     v_error_integral.resize(V_d.size());
     ROS_WARN_STREAM_THROTTLE(1, "integral cartesian velocity error:" << v_error_integral);
-//    v_error_integral += (V_d - V_c) * duration.toSec();
-    v_error_integral += (V_d - V_c);
+    v_error_integral += (V_d - V_c) * duration.toSec();
 
     VectorXd V_v = V_d + K_i_v_ * v_error_integral;
     //f_lambda = dot_lamdda_d(恒力为零) + K_p_lambda * [lambda_d - lambda_c] + K_i_lamda * Integral(lambda_d - lambda_c)
@@ -167,11 +207,16 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     get_rotation_matrix(rot_ft_base, tf_listener_, ft_frame_, base_link_);
     Matrix6d rot_ft_task = trans_task_base.inverse() * rot_ft_base;
     VectorXd lambda_c = S_f_inv_ * rot_ft_task * (- wrench_external_);
+    ROS_WARN_STREAM_THROTTLE(1, "current force in task frame:" << lambda_c);
     //期望的lambda_d 表示为机械臂末端期望对环境施加的力
     VectorXd lambda_d = S_f_inv_ * wrench_desired_threshold_;
+    ROS_WARN_STREAM_THROTTLE(1, "desired force in task frame:" << lambda_d);
     force_error_integral.resize(lambda_d.size());
     force_error_integral += (lambda_d - lambda_c) * duration.toSec();
+    ROS_WARN_STREAM_THROTTLE(1, "integral force error:" << force_error_integral);
     VectorXd f_lambda = K_p_lambda_ * (lambda_d - lambda_c) + K_i_lambda_ * (lambda_d - lambda_c);
+    ROS_WARN_STREAM_THROTTLE(1, "force control output:" << f_lambda);
+
     VectorXd V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
     // 再变换为基坐标系下的速度
     Vector6d V_cmd = trans_task_base * V_r;

@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     std::vector<double> W_f;
     std::vector<double> K_env;
 
-//    std::vector<double> desired_pose;
+    std::vector<double> desired_pose;
 
 
     double arm_max_vel;
@@ -103,6 +103,10 @@ int main(int argc, char **argv) {
         ROS_ERROR("Couldn't retrieve the interface_type.");
         return -1;
     }
+    if (!nh.getParam("desired_pose", desired_pose)) {
+        ROS_ERROR("Couldn't retrieve the desired pose of the spring.");
+        return -1;
+    }
 
     if (!nh.getParam("arm_max_vel", arm_max_vel)) {
         ROS_ERROR("Couldn't retrieve the max velocity for the arm.");
@@ -130,6 +134,7 @@ int main(int argc, char **argv) {
             W_v,
             W_f,
             K_env,
+            desired_pose,
             base_link,
             end_link,
             interface_type,
