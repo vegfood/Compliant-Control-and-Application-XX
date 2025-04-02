@@ -190,9 +190,9 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     Eigen::AngleAxisd err_arm_des_orient(quat_rot_err);
     pose_error.bottomRows(3) << - R_desired_base * err_arm_des_orient.axis() * err_arm_des_orient.angle();
     //期望速度+末端姿态跟踪
-//    VectorXd V_d = S_v_inv_ * (arm_desired_velocity_twist + pose_error);
+    VectorXd V_d = S_v_inv_ * (arm_desired_velocity_twist + pose_error);
     //期望速度
-    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
+//    VectorXd V_d = S_v_inv_ * arm_desired_velocity_twist;
 
     ROS_WARN_STREAM_THROTTLE(1, "desired cartesian velocity:" << V_d);
     //控制周期
@@ -200,8 +200,12 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     v_error_integral.resize(V_d.size());
     ROS_WARN_STREAM_THROTTLE(1, "integral cartesian velocity error:" << v_error_integral);
     v_error_integral += (V_d - V_c) * duration.toSec();
+    //控制律1：
+//    VectorXd V_v = V_d + K_i_v_ * v_error_integral;
+    //控制律2：
+    VectorXd V_v = V_d;
+    ROS_WARN_STREAM_THROTTLE(1, "velocity control output:" << V_v);
 
-    VectorXd V_v = V_d + K_i_v_ * v_error_integral;
     //f_lambda = dot_lamdda_d(恒力为零) + K_p_lambda * [lambda_d - lambda_c] + K_i_lamda * Integral(lambda_d - lambda_c)
     // 获取末端力矩传感器到基座的变换，再变换到任务坐标系
     Matrix6d rot_ft_base;
@@ -218,7 +222,11 @@ Vector6d HybridForce::compute_hybrid_force_velocity_interface() {
     VectorXd f_lambda = K_p_lambda_ * (lambda_d - lambda_c) + K_i_lambda_ * (lambda_d - lambda_c);
     ROS_WARN_STREAM_THROTTLE(1, "force control output:" << f_lambda);
 
-    VectorXd V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
+    // 控制律1：已知S_v和s_f
+//    VectorXd V_r = S_v_ * V_v + C_prime_ * S_f_ * f_lambda;
+    // 控制律2：S_v和S_f未知
+    VectorXd V_r = V_v + K_env_.inverse() * f_lambda;
+
     // 再变换为基坐标系下的速度
     Vector6d V_cmd = trans_task_base * V_r;
     ROS_WARN_STREAM_THROTTLE(1, "HybridForce generates cartesian velocity cmd:" << V_cmd);
